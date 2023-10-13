@@ -1,0 +1,39 @@
+using System.IO.Pipes; 
+using System.Runtime.CompilerServices; 
+using System.Runtime.InteropServices; 
+ 
+namespace Client; 
+ 
+class Program 
+{ 
+ public struct AddedData 
+ { 
+ public int a; 
+ public int b; 
+ } 
+ public static void Main() 
+ { 
+ Console.WriteLine("Connecting...\n"); 
+ 
+ var stream = new NamedPipeClientStream(".", "brbr", PipeDirection.InOut); 
+ stream.Connect(); 
+ 
+ Console.WriteLine("The connection was successful!\n"); 
+ Console.WriteLine("Waiting for data\n"); 
+ 
+ byte[] array = new byte[Unsafe.SizeOf<AddedData>()]; 
+ stream.Read(array); 
+ var answer = MemoryMarshal.Read<AddedData>(array); 
+ 
+ Console.WriteLine($"Received: {answer.a}, {answer.b}\n"); 
+ 
+ answer.a += answer.b ; // 15 + 10 = 25 
+ answer.b -= answer.a; // 10 - 25 = -15 
+ 
+ Console.WriteLine($"Sent: {answer.a}, {answer.b}...\n"); 
+ 
+ byte[] flow = new byte[Unsafe.SizeOf<AddedData>()]; 
+ MemoryMarshal.Write<AddedData>(flow, ref answer); 
+ stream.Write(flow); 
+ } 
+}
