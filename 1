@@ -1,1 +1,35 @@
+using System.IO.Pipes;
+using System.Runtime.CompilerServices;
+using System.Runtime.InteropServices;
+namespace Server;
 
+internal class Program
+{
+    public struct AddedData
+    {
+        public int a;
+        public int b;
+    }
+    public static void Main()
+    {
+        var data = new AddedData {a = 15, b = 10}; 
+
+        Console.WriteLine("Waiting for an answer\n");
+
+        var stream = new NamedPipeServerStream("brbr", PipeDirection.InOut);
+        stream.WaitForConnection();
+
+        Console.WriteLine("The client is connected\n");
+        Console.WriteLine($"Sending data: {data.a}, {data.b}\n");
+
+        byte[] flow = new byte[Unsafe.SizeOf<AddedData>()];
+        MemoryMarshal.Write<AddedData>(flow, ref data);
+        stream.Write(flow);
+
+        byte[] array = new byte[Unsafe.SizeOf<AddedData>()];
+        stream.Read(array);
+
+        var answer = MemoryMarshal.Read<AddedData>(array);
+        Console.WriteLine($"Answer: {answer.a}, {answer.b}\n");                        
+    }
+}
