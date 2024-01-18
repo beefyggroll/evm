@@ -1,0 +1,158 @@
+using System;
+using System.IO;
+using System.IO.Pipes;
+using System.Runtime.CompilerServices;
+using System.Runtime.InteropServices;
+using System.Text;
+using System.Threading.Tasks;
+using System.Xml.Linq;
+using System.Threading;
+using static PipeServer;
+using System.Text.RegularExpressions;
+using System.Collections.Generic;
+using System.Collections;
+
+public struct People
+{
+    public People(int n, int s)
+    {
+        Name = n;
+        Surename = s;
+    }
+
+    public int Name { get; }
+    public int Surename { get; }
+}
+class PipeServer
+{
+
+    private static PriorityQueue<People, int> peopleQueue = new();
+    private static Queue<People> queue = new Queue<People>();
+    private static Mutex mut = new Mutex();
+   
+    public static void writefile()
+    {
+
+        try
+        {
+            StreamWriter sw = new StreamWriter("U:\\Test1.txt", true, Encoding.ASCII);
+
+            foreach (People num in queue)
+            {
+                sw.Write("Numbers: {0} and {1}\n", num.Name, num.Surename);
+            }
+            sw.Close();
+            queue.Clear();
+        }
+        catch (Exception e)
+        {
+            Console.WriteLine("Problem: " + e.Message);
+        }
+        finally
+        {
+            Console.WriteLine("Write too file.");
+        }
+    }
+    public static Task Inter(CancellationTokenSource source)
+    {
+        return Task.Run(() =>
+        {
+            while (!source.IsCancellationRequested)
+            {
+                string? input = Console.ReadLine();
+                if (input != null)
+                {
+                    string[] parts = input.Split(' ');
+                    if ((int.TryParse(parts[0], out int firstnum)) && (int.TryParse(parts[1], out int secondnum)) && (int.TryParse(parts[2], out int priora)))
+                    {
+                        People message = new People(firstnum, secondnum);
+                        Console.WriteLine("About to send to client {0} and {1} and {2}.", message.Name, message.Surename, priora);
+                        mut.WaitOne();
+                        peopleQueue.Enqueue(message, priora);
+                        mut.ReleaseMutex();
+                    }
+                    else
+                    {
+                        Console.WriteLine("Wrong message");
+                    }
+                }
+            }
+            Console.WriteLine("Stop 1");
+
+        });
+    }
+    public static Task Write(NamedPipeServerStream namedPipeServer, CancellationTokenSource source)
+    {
+        return Task.Run(async () =>
+        {
+            while (!source.IsCancellationRequested)
+            {
+                if (peopleQueue.Count > 0)
+                {
+                    byte[] messageBufferr = new byte[Unsafe.SizeOf<People>()];
+                    byte[] messageBuffer = new byte[Unsafe.SizeOf<People>()];
+                    if (!namedPipeServer.IsConnected)
+                    {
+                        continue;
+                    }
+                    mut.WaitOne();
+                    if (peopleQueue.TryDequeue(out People element, out int priority) == true)
+                    {
+                        MemoryMarshal.Write(messageBufferr, ref element);
+                        mut.ReleaseMutex();
+                        try
+                        {
+                            await namedPipeServer.WriteAsync(messageBufferr);
+                            await namedPipeServer.ReadAsync(messageBuffer, 0, messageBuffer.Length);
+                        }
+                        catch (TaskCanceledException)
+                        {
+                            break;
+                        }
+                        People receivedWork = MemoryMarshal.Read<People>(messageBuffer);
+                        Console.WriteLine("Received from client: {0} and {1}.", receivedWork.Name, receivedWork.Surename);
+                        queue.Enqueue(receivedWork);
+
+                        
+                    }
+                    else
+                    {
+                        continue;
+                    }
+                   
+
+                }
+                else
+                {
+                    continue;
+                }
+            }
+            Console.WriteLine("Stop 2");
+        });
+    }
+    static async Task Main()
+    {
+
+        using (NamedPipeServerStream namedPipeServer = new NamedPipeServerStream("test-pipe", PipeDirection.InOut, 1, PipeTransmissionMode.Message))
+        {
+
+            byte[] messageBuffer = new byte[Unsafe.SizeOf<People>()];
+            Console.WriteLine("Server waiting for a connection...");//Ожидание соединения
+            namedPipeServer.WaitForConnection();
+            Console.Write("A client has connected. ");
+            Console.Write("Write 2 numbers separated by a space. If you gonna exit ctrl+C: ");
+            CancellationTokenSource source = new CancellationTokenSource();
+            Console.CancelKeyPress += (sender, e) =>
+            {
+                e.Cancel = true; // Предотвращаем завершение программы
+                source.Cancel(); // Устанавливаем флаг запроса на выход
+            };
+            Task t1 = Inter(source);
+            Task t2 = Write(namedPipeServer, source);
+            await Task.WhenAll(t1, t2);
+            writefile();
+            await namedPipeServer.DisposeAsync();
+            Console.ReadKey(true);
+        }
+    }
+}
