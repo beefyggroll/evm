@@ -1,0 +1,27 @@
+#include <SPI.h>
+#include <AmperkaFET.h>
+#include <string>
+#include <string.h>
+#include <sstream>
+
+FET mosfet(D0, 2);
+void setup() {
+Serial.begin();
+mosfet.begin();
+}
+void loop() {
+
+if (Serial.available()) {
+uint8_t device;
+uint8_t pin;
+bool mode;
+std::stringstream input;
+
+input << Serial.readString().c_str();
+input >> device;
+input >> pin;
+input >> mode;
+
+mosfet.digitalWrite(device, pin, mode);
+}
+}
