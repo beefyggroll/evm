@@ -1,0 +1,12 @@
+void setup() {
+  analogWriteFreq(25000);
+  
+}
+
+void loop() {
+  // put your main code here, to run repeatedly:
+  int potVal = analogRead(A0);
+  int myVal = map(potVal, 0, 4095, 0, 255);
+  analogWrite(D1, myVal);
+  analogWrite(D0, myVal);
+}
