@@ -1,0 +1,73 @@
+using System;
+using System.Data;
+using System.IO;
+using System.IO.Pipes;
+using System.Net;
+using System.Runtime.CompilerServices;
+using System.Runtime.InteropServices;
+using System.Security.Cryptography;
+using System.Text;
+using System.Xml.Linq;
+
+
+class PipeServer
+{
+    private static Mutex mut = new Mutex();
+    public struct Work
+    {
+        public Work(double n, double s)
+        {
+            Where = n;
+            Who = s;
+        }
+        public double Where { get; }
+        public double Who { get; }
+    }
+    static async Task Main(string[] a)
+    {
+        static double Function(double x)
+        {
+            return 2 * Math.Log(x);
+        }
+
+        // Функция для расчета интеграла методом трапеций
+        static double count(double a, double b)
+        {
+
+            double h = (b - a) / 1000;
+            double integralValue = 0.5 * (Function(a) + Function(b));
+            for (int i = 1; i < 1000; i++)
+            {
+                double x = a + i * h;
+                integralValue += Function(x);
+            }
+            integralValue *= h;
+            return integralValue;
+        }
+        while (true)
+        {
+
+            NamedPipeClientStream namedPipeClient = new(a[0]);
+            try
+            {
+                if (!namedPipeClient.IsConnected)
+                {
+                    namedPipeClient.Connect();
+                }
+                byte[] messageBufferr = new byte[Unsafe.SizeOf<Work>()];
+                await namedPipeClient.ReadAsync(messageBufferr);
+
+                Work receivedWork = MemoryMarshal.Read<Work>(messageBufferr);
+                Console.WriteLine("Получено от сервера {0} и {1}.", receivedWork.Where, receivedWork.Who);
+                double integral = count(receivedWork.Where, receivedWork.Who);
+                Console.WriteLine("Интеграл{0} ", integral);
+                MemoryMarshal.Write(messageBufferr, ref integral);
+                Console.WriteLine("Прекращение приёма данных.Подготовка к отправке. ");
+                await namedPipeClient.WriteAsync(messageBufferr);
+
+            }
+            catch (Exception)
+            { }
+        }
+    }
+}
