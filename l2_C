@@ -1,0 +1,59 @@
+using System;
+using System.IO;
+using System.IO.Pipes;
+using System.Runtime.InteropServices;
+using System.Runtime.CompilerServices;
+using System.Threading.Tasks;
+using System.Linq.Expressions;
+
+public struct Message
+{
+    public int Num1 { get; set; }
+    public int Num2 { get; set; }
+}
+
+class PipeClient
+{
+    static async Task Main()
+    {
+        using (var Client = new NamedPipeClientStream(".", "testpipe", PipeDirection.InOut))
+        {
+            Message message = new Message();
+            try{
+            while (true)
+            {
+                if (!Client.IsConnected)
+                {
+                    Console.WriteLine("Клиент подключается...");
+                    Client.Connect();
+
+                }
+
+                byte[] byt = new byte[Unsafe.SizeOf<Message>()];
+                
+                if (!Client.IsConnected)
+                {
+                    Console.WriteLine("Сервер отключился");
+                    break;
+                }
+                await Client.ReadAsync(byt);
+
+                message = MemoryMarshal.Read<Message>(byt);
+                Console.WriteLine("{0}, {1}", message.Num1, message.Num2);
+                MemoryMarshal.Write(byt, ref message);
+                
+                if (!Client.IsConnected)
+                {
+                    Console.WriteLine("Сервер отключился");
+                    break;
+                }
+                
+                await Client.WriteAsync(byt);
+                Console.WriteLine("Entering number to clienttt");
+            }
+            Console.WriteLine("Клиент отключился");
+         }catch{};
+        }
+        
+    }
+}
