@@ -1,0 +1,159 @@
+using System;
+using System.IO;
+using System.IO.Pipes;
+using System.Runtime.CompilerServices;
+using System.Runtime.InteropServices;
+using System.Text;
+using System.Threading.Tasks;
+using System.Xml.Linq;
+using System.Threading;
+using static PipeServer;
+using System.Text.RegularExpressions;
+using System.Collections.Generic;
+using System.Collections;
+using System.Diagnostics;
+
+
+public struct Pelmeshki
+{
+    public Pelmeshki(double n, double s)
+    {
+        Name = n;
+        Surename = s;
+    }
+
+    public double Name { get; }
+    public double Surename { get; }
+}
+class PipeServer
+{
+    internal static class Program
+    {
+        private static PriorityQueue<Pelmeshki, double> pelmeshkiQueue = new();
+        private static PriorityQueue<Pelmeshki, double> pelmeshkiQueue2 = new();
+        private static Queue<double> queue = new Queue<double>();
+        private static Mutex mut = new Mutex();
+
+        private static async Task сlient(Pelmeshki pelmeshki, CancellationTokenSource source)
+        {
+
+
+            byte[] messageBufferr = new byte[Unsafe.SizeOf<Pelmeshki>()];
+            byte[] messageBuffer = new byte[Unsafe.SizeOf<double>()];
+            var guid = Guid.NewGuid().ToString();
+            Process? clientProcess = default;
+            NamedPipeServerStream namedPipeServer = new(guid);
+            if (!namedPipeServer.IsConnected)
+            {
+                clientProcess = Process.Start("D:\\Lab3_C\\Lab3_C\\bin\\Debug\\net7.0\\Lab3_C.exe", guid);
+                namedPipeServer.WaitForConnection();
+                Console.WriteLine("Клиент подключен");
+            }
+            MemoryMarshal.Write(messageBufferr, ref pelmeshki);
+            try
+            {
+                await namedPipeServer.WriteAsync(messageBufferr);
+                Console.WriteLine("Данные отправлены, ожидаем ответа. ");
+                await namedPipeServer.ReadAsync(messageBuffer, 0, messageBuffer.Length);
+                double receivedintegral = MemoryMarshal.Read<double>(messageBuffer);
+                Console.WriteLine("Полученный инетграл: : {0} ", receivedintegral);
+                writefile(pelmeshkiQueue2.Dequeue(), receivedintegral);
+            }
+            catch (TaskCanceledException)
+            {
+                Console.WriteLine("Task is canceled!:(");
+            }
+            clientProcess?.WaitForExit();
+            namedPipeServer.Dispose();
+
+        }
+
+        public static void writefile(Pelmeshki pelmeshki, double receivedintegral)
+        {
+
+            try
+            {
+                StreamWriter sw = new StreamWriter("D:\\Lab3_C", true, Encoding.ASCII);
+                sw.Write("Input numbers: {0} and {1}, integral = {2}. \n", pelmeshki.Name, pelmeshki.Surename, receivedintegral);
+                sw.Close();
+
+            }
+            catch (Exception e)
+            {
+                Console.WriteLine("Problem: " + e.Message);
+            }
+            finally
+            {
+                Console.WriteLine("Write too file.");
+            }
+        }
+        public static Task Inter(CancellationTokenSource source)
+        {
+            return Task.Run(() =>
+            {
+                Console.Write("Введите 3 числа через пробел. : ");
+                while (!source.IsCancellationRequested)
+                {
+                    string? input = Console.ReadLine();
+                    if (input != null)
+                    {
+                        string[] parts = input.Split(' ');
+                        for (int i = 0; i < parts.Length - 1; i++)
+                        {
+                            
+                        }
+
+                        if ((double.TryParse(parts[0], out double firstnum)) && (double.TryParse(parts[1], out double secondnum)) && (double.TryParse(parts[2], out double priora)))
+                        {
+                            Pelmeshki message = new Pelmeshki(firstnum, secondnum);
+                            Console.WriteLine("Отправка клиенту {0} and {1}.", message.Name, message.Surename);
+                            mut.WaitOne();
+                            pelmeshkiQueue.Enqueue(message, priora);
+                            pelmeshkiQueue2.Enqueue(message, priora);
+                            mut.ReleaseMutex();
+                        }
+                        else
+                        {
+                            Console.WriteLine("Неправильный ввод :(");
+                        }
+                    }
+                }
+                Console.WriteLine("Stop");
+            });
+        }
+        public static Task Write(CancellationTokenSource source)
+        {
+            return Task.Run(() =>
+            {
+                while (!source.IsCancellationRequested)
+                {
+
+                    if (pelmeshkiQueue.Count > 0)
+                    {
+
+                        mut.WaitOne();
+                        Pelmeshki pelmeshki = pelmeshkiQueue.Dequeue();
+                        mut.ReleaseMutex();
+                        _ = сlient(pelmeshki, source);
+                    }
+                }
+                Console.WriteLine("Stop");
+            });
+        }
+
+        static async Task Main()
+        {
+            CancellationTokenSource source = new CancellationTokenSource();
+            Console.CancelKeyPress += (sender, e) =>
+            {
+                e.Cancel = true; 
+                source.Cancel(); 
+            };
+            Task t1 = Inter(source);
+            Task t2 = Write(source);
+            await Task.WhenAll(t1, t2);
+
+
+        }
+    }
+}
