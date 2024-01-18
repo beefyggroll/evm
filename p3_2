@@ -1,0 +1,64 @@
+#include <WiFi.h> 
+#include <WiFiClient.h> 
+#include <WebServer.h> 
+#include <LEAmDNS.h> 
+#include <Accelerometer.h> 
+#include <Barometer.h> 
+#include <BaseIMU.h> 
+#include <Compass.h> 
+#include <GOST4401_81.h> 
+#include <Gyroscope.h> 
+#include <MadgwickAHRS.h> 
+#include <TroykaIMU.h> 
+#include <TroykaMeteoSensor.h> 
+#ifndef STASSID 
+#define STASSID "ASOIU" 
+#define STAPSK "kaf.asoiu.48" 
+#endif 
+TroykaMeteoSensor meteoSensor; 
+Barometer barometer; 
+const char* ssid = STASSID; 
+const char* password = STAPSK; 
+ 
+WebServer server(80); 
+ 
+ 
+void handleRoot() { 
+  String stateSensor = String(barometer.readTemperatureC());  
+  String Barometr = String(barometer.readPressureMillimetersHg()); 
+  String Attidue = String(barometer.readAltitude()); 
+  //barometer.readPressureMillimetersHg() 
+  String base = "Temperature "+ stateSensor +" Pressure " + Barometr + " Attitude"+Attidue; 
+  server.send(200, "text/plain", base); 
+} 
+ 
+ 
+void setup(void) { 
+  Serial.begin(115200); 
+  WiFi.mode(WIFI_STA); 
+  WiFi.begin(ssid, password); 
+  meteoSensor.begin(); 
+  barometer.begin(); 
+  Serial.println(""); 
+ 
+  // Wait for connection 
+  while (WiFi.status() != WL_CONNECTED) { 
+    delay(500); 
+    Serial.print("."); 
+  } 
+  Serial.println(""); 
+  Serial.print("Connected to "); 
+  Serial.println(ssid); 
+  Serial.print("IP address: "); 
+  Serial.println(WiFi.localIP()); 
+ 
+  server.on("/", handleRoot); 
+ 
+  server.begin(); 
+  Serial.println("HTTP server started"); 
+} 
+ 
+void loop(void) { 
+  server.handleClient(); 
+  MDNS.update(); 
+}
