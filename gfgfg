@@ -33,41 +33,36 @@ class KnightTourSolver:
     
     def solve_knights_tour(self, start_x: int, start_y: int) -> Optional[List[List[int]]]:
         """Решение задачи о ходе коня с использованием эвристики Варнсдорфа"""
-        board_copy = [row[:] for row in self.board]  # Сохраняем исходное состояние
+        board_copy = [row[:] for row in self.board]  
         
-        # Начальная позиция
         x, y = start_x, start_y
         self.board[x][y] = 1
         
         for move_number in range(2, self.n * self.m + 1):
-            # Получаем все возможные ходы
             next_moves = self.get_valid_moves(x, y)
             
             if not next_moves:
-                self.board = board_copy  # Восстанавливаем исходное состояние
-                return None  # Тупик
+                self.board = board_copy  
+                return None  
             
-            # Применяем правило Варнсдорфа: выбираем ход с минимальным количеством последующих ходов
             next_moves.sort(key=lambda pos: self.warnsdorff_heuristic(pos[0], pos[1]))
             
-            # Выбираем лучший ход
             x, y = next_moves[0]
             self.board[x][y] = move_number
         
-        solution = [row[:] for row in self.board]  # Сохраняем решение
-        self.board = board_copy  # Восстанавливаем исходное состояние
+        solution = [row[:] for row in self.board]  
+        self.board = board_copy  
         return solution
     
     def solve_with_backtracking(self, start_x: int, start_y: int) -> Optional[List[List[int]]]:
         """Решение с возвратом для более надежного поиска"""
-        board_copy = [row[:] for row in self.board]  # Сохраняем исходное состояние
+        board_copy = [row[:] for row in self.board]  
         self.board[start_x][start_y] = 1
         
         def backtrack(x: int, y: int, move_count: int) -> bool:
             if move_count == self.n * self.m:
                 return True
             
-            # Получаем возможные ходы с эвристикой Варнсдорфа
             next_moves = self.get_valid_moves(x, y)
             next_moves.sort(key=lambda pos: self.warnsdorff_heuristic(pos[0], pos[1]))
             
@@ -75,16 +70,16 @@ class KnightTourSolver:
                 self.board[next_x][next_y] = move_count + 1
                 if backtrack(next_x, next_y, move_count + 1):
                     return True
-                self.board[next_x][next_y] = -1  # Откат
+                self.board[next_x][next_y] = -1  
             
             return False
         
         result = backtrack(start_x, start_y, 1)
         if result:
-            solution = [row[:] for row in self.board]  # Сохраняем решение
-            self.board = board_copy  # Восстанавливаем исходное состояние
+            solution = [row[:] for row in self.board]  
+            self.board = board_copy  
             return solution
-        self.board = board_copy  # Восстанавливаем исходное состояние
+        self.board = board_copy  
         return None
 
     def find_all_solutions(self, start_x: int, start_y: int, max_solutions: int = 1000) -> List[List[List[int]]]:
@@ -96,19 +91,16 @@ class KnightTourSolver:
                 return
             
             if move_count == self.n * self.m:
-                # Сохраняем глубокую копию решения
                 solution = copy.deepcopy(board)
                 self.all_solutions.append(solution)
                 return
             
-            # Получаем возможные ходы
             next_moves = []
             for dx, dy in self.moves:
                 new_x, new_y = x + dx, y + dy
                 if 0 <= new_x < self.n and 0 <= new_y < self.m and board[new_x][new_y] == -1:
                     next_moves.append((new_x, new_y))
             
-            # Сортируем по эвристике Варнсдорфа для ускорения
             def get_degree(pos):
                 count = 0
                 for dx, dy in self.moves:
@@ -122,9 +114,8 @@ class KnightTourSolver:
             for next_x, next_y in next_moves:
                 board[next_x][next_y] = move_count + 1
                 backtrack_all(next_x, next_y, move_count + 1, board)
-                board[next_x][next_y] = -1  # Откат
+                board[next_x][next_y] = -1  
         
-        # Создаем новую доску для поиска
         initial_board = [[-1 for _ in range(self.m)] for _ in range(self.n)]
         initial_board[start_x][start_y] = 1
         backtrack_all(start_x, start_y, 1, initial_board)
@@ -145,15 +136,12 @@ class KnightTourGUI:
         self.animation_id = None
         
     def setup_gui(self):
-        # Основной фрейм
         main_frame = ttk.Frame(self.root, padding="10")
         main_frame.grid(row=0, column=0, sticky=(tk.W, tk.E, tk.N, tk.S))
         
-        # Фрейм ввода параметров
         input_frame = ttk.LabelFrame(main_frame, text="Параметры доски", padding="10")
         input_frame.grid(row=0, column=0, sticky=(tk.W, tk.E), pady=(0, 10))
         
-        # Размеры доски
         ttk.Label(input_frame, text="Ширина доски (n):").grid(row=0, column=0, sticky=tk.W)
         self.n_var = tk.StringVar(value="5")
         self.n_spinbox = ttk.Spinbox(input_frame, from_=3, to=8, textvariable=self.n_var, width=10)
@@ -164,7 +152,6 @@ class KnightTourGUI:
         self.m_spinbox = ttk.Spinbox(input_frame, from_=3, to=8, textvariable=self.m_var, width=10)
         self.m_spinbox.grid(row=0, column=3, padx=(5, 15))
         
-        # Начальная позиция
         ttk.Label(input_frame, text="Начальная позиция X:").grid(row=1, column=0, sticky=tk.W, pady=(10, 0))
         self.start_x_var = tk.StringVar(value="0")
         self.start_x_spinbox = ttk.Spinbox(input_frame, from_=0, to=7, textvariable=self.start_x_var, width=10)
@@ -175,13 +162,11 @@ class KnightTourGUI:
         self.start_y_spinbox = ttk.Spinbox(input_frame, from_=0, to=7, textvariable=self.start_y_var, width=10)
         self.start_y_spinbox.grid(row=1, column=3, padx=(5, 15), pady=(10, 0))
         
-        # Максимальное количество решений
         ttk.Label(input_frame, text="Макс. решений:").grid(row=2, column=0, sticky=tk.W, pady=(10, 0))
         self.max_solutions_var = tk.StringVar(value="100")
         self.max_solutions_spinbox = ttk.Spinbox(input_frame, from_=1, to=1000, textvariable=self.max_solutions_var, width=10)
         self.max_solutions_spinbox.grid(row=2, column=1, padx=(5, 15), pady=(10, 0))
         
-        # Кнопки управления
         button_frame = ttk.Frame(main_frame)
         button_frame.grid(row=1, column=0, pady=(10, 10))
         
@@ -200,14 +185,12 @@ class KnightTourGUI:
         self.reset_btn = ttk.Button(button_frame, text="Сбросить", command=self.reset)
         self.reset_btn.pack(side=tk.LEFT)
         
-        # Фрейм для доски (посередине)
         board_container = ttk.Frame(main_frame)
         board_container.grid(row=2, column=0, pady=20, sticky=(tk.W, tk.E, tk.N, tk.S))
         
         self.board_frame = ttk.LabelFrame(board_container, text="Шахматная доска", padding="10")
         self.board_frame.pack(expand=True)
         
-        # Информация о решениях
         info_frame = ttk.Frame(main_frame)
         info_frame.grid(row=3, column=0, sticky=(tk.W, tk.E), pady=(10, 0))
         
@@ -217,12 +200,10 @@ class KnightTourGUI:
         self.current_solution_var = tk.StringVar(value=" | Текущее решение: 0/0")
         ttk.Label(info_frame, textvariable=self.current_solution_var, font=("Arial", 9)).pack(side=tk.LEFT, padx=(20, 0))
         
-        # Статус бар
         self.status_var = tk.StringVar(value="Готов к работе")
         status_bar = ttk.Label(main_frame, textvariable=self.status_var, relief=tk.SUNKEN)
         status_bar.grid(row=4, column=0, sticky=(tk.W, tk.E), pady=(10, 0))
         
-        # Настройка весов для растягивания
         self.root.columnconfigure(0, weight=1)
         self.root.rowconfigure(0, weight=1)
         main_frame.columnconfigure(0, weight=1)
@@ -232,11 +213,9 @@ class KnightTourGUI:
         
     def create_board(self, n: int, m: int):
         """Создание графического представления доски"""
-        # Очищаем предыдущую доску
         for widget in self.board_frame.winfo_children():
             widget.destroy()
         
-        # Создаем canvas для доски
         canvas_width = min(500, m * 60)
         canvas_height = min(500, n * 60)
         self.canvas = tk.Canvas(self.board_frame, width=canvas_width, height=canvas_height, 
@@ -246,7 +225,6 @@ class KnightTourGUI:
         self.cell_size = min(canvas_width // m, canvas_height // n, 60)
         self.cells = [[None for _ in range(m)] for _ in range(n)]
         
-        # Рисуем шахматную доску
         for i in range(n):
             for j in range(m):
                 x1 = j * self.cell_size
@@ -276,10 +254,8 @@ class KnightTourGUI:
             self.status_var.set("Поиск решений")
             self.root.update()
             
-            # Создаем доску
             self.create_board(n, m)
             
-            # Ищем все решения
             solver = KnightTourSolver(n, m)
             self.all_solutions = solver.find_all_solutions(start_x, start_y, max_solutions)
             
@@ -329,11 +305,9 @@ class KnightTourGUI:
         if move_number is None:
             move_number = n * m
         
-        # Очищаем предыдущие номера
         self.canvas.delete("numbers")
         self.canvas.delete("knight")
         
-        # Отображаем номера ходов
         for i in range(n):
             for j in range(m):
                 cell_value = self.solution[i][j]
@@ -341,7 +315,6 @@ class KnightTourGUI:
                     x = j * self.cell_size + self.cell_size // 2
                     y = i * self.cell_size + self.cell_size // 2
                     
-                    # Подсвечиваем текущую позицию коня
                     if cell_value == move_number:
                         self.canvas.create_oval(x-15, y-15, x+15, y+15, fill="red", outline="darkred", tags="knight")
                         self.canvas.create_text(x, y, text=str(cell_value), 
@@ -402,7 +375,6 @@ class KnightTourGUI:
         self.solutions_info_var.set("Всего решений: 0")
         self.current_solution_var.set(" | Текущее решение: 0/0")
         
-        # Очищаем canvas
         if hasattr(self, 'canvas'):
             self.canvas.delete("numbers")
             self.canvas.delete("knight")
@@ -410,7 +382,6 @@ class KnightTourGUI:
     def run(self):
         """Запуск приложения"""
         self.root.mainloop()
-
 
 if __name__ == "__main__":
     app = KnightTourGUI()
