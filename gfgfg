@@ -1,14 +1,12 @@
 import sys
-import math
 import re
-from typing import List, Tuple, Optional, Union
+import math
+from typing import List, Tuple
 import numpy as np
-from PyQt5.QtWidgets import (QApplication, QMainWindow, QWidget, QVBoxLayout, QHBoxLayout, 
-                             QRadioButton, QLineEdit, QPushButton, QLabel, QTextEdit, 
-                             QFileDialog, QMessageBox, QGroupBox)
-from PyQt5.QtCore import Qt, QPoint, QPointF, pyqtSignal
-from PyQt5.QtGui import QPainter, QPen, QColor, QFont, QFontMetrics, QMouseEvent, QWheelEvent
-import matplotlib.pyplot as plt
+from PyQt5.QtWidgets import (QApplication, QMainWindow, QWidget, QVBoxLayout, QHBoxLayout,
+                             QRadioButton, QLineEdit, QPushButton, QLabel, QTextEdit,
+                             QFileDialog, QMessageBox, QGroupBox, QSlider)
+from PyQt5.QtCore import Qt
 from matplotlib.backends.backend_qt5agg import FigureCanvasQTAgg as FigureCanvas
 from matplotlib.figure import Figure
 import matplotlib.ticker as ticker
@@ -21,358 +19,176 @@ class PlotCanvas(FigureCanvas):
         self.setParent(parent)
         
         self.axes = self.fig.add_subplot(111)
-        
-        # Устанавливаем сетку с шагом 1 по обеим осям
-        self.axes.grid(True, linestyle='--', alpha=0.7)
-        self.axes.axhline(y=0, color='k', linewidth=1)
-        self.axes.axvline(x=0, color='k', linewidth=1)
-        self.axes.set_xlabel('X')
-        self.axes.set_ylabel('Y')
-        
-        # Устанавливаем одинаковый масштаб по осям
-        self.axes.set_aspect('equal')
-        
-        # Устанавливаем деления с шагом 1
-        self.axes.xaxis.set_major_locator(ticker.MultipleLocator(1))
-        self.axes.yaxis.set_major_locator(ticker.MultipleLocator(1))
-        
-        # Фиксированный размер экрана для всех функций
-        self.fixed_xlim = (-10, 10)
-        self.fixed_ylim = (-10, 10)
+        self._setup_axes()
+        self.fixed_xlim = (-200, 200)
+        self.fixed_ylim = (-200, 200)
         self.axes.set_xlim(self.fixed_xlim)
         self.axes.set_ylim(self.fixed_ylim)
+        self._update_ticks()
         
         self.current_function = ""
         self.is_analytical = True
         self.tabular_data = None
-        
-        # Переменные для перемещения графика
-        self.dragging = False
-        self.last_mouse_pos = None
-        
-        # Подключаем обработчики событий мыши
-        self.mpl_connect('button_press_event', self.on_mouse_press)
-        self.mpl_connect('button_release_event', self.on_mouse_release)
-        self.mpl_connect('motion_notify_event', self.on_mouse_move)
-        self.mpl_connect('scroll_event', self.on_mouse_scroll)
-        
-    def on_mouse_press(self, event):
-        """Обработчик нажатия кнопки мыши"""
-        if event.button == 1:  # Левая кнопка мыши
-            self.dragging = True
-            self.last_mouse_pos = (event.xdata, event.ydata)
-            
-    def on_mouse_release(self, event):
-        """Обработчик отпускания кнопки мыши"""
-        if event.button == 1:  # Левая кнопка мыши
-            self.dragging = False
-            self.last_mouse_pos = None
-            
-    def on_mouse_move(self, event):
-        """Обработчик перемещения мыши"""
-        if self.dragging and event.xdata is not None and event.ydata is not None:
-            if self.last_mouse_pos[0] is not None and self.last_mouse_pos[1] is not None:
-                # Вычисляем смещение
-                dx = event.xdata - self.last_mouse_pos[0]
-                dy = event.ydata - self.last_mouse_pos[1]
-                
-                # Получаем текущие границы
-                x_min, x_max = self.axes.get_xlim()
-                y_min, y_max = self.axes.get_ylim()
-                
-                # Сдвигаем границы
-                self.axes.set_xlim(x_min - dx, x_max - dx)
-                self.axes.set_ylim(y_min - dy, y_max - dy)
-                
-                self.draw()
-                
-            self.last_mouse_pos = (event.xdata, event.ydata)
-            
-    def on_mouse_scroll(self, event):
-        """Обработчик прокрутки колесика мыши"""
-        if event.xdata is not None and event.ydata is not None:
-            # Определяем коэффициент масштабирования
-            zoom_factor = 1.1 if event.button == 'up' else 0.9
-            
-            # Получаем текущие границы
-            x_min, x_max = self.axes.get_xlim()
-            y_min, y_max = self.axes.get_ylim()
-            
-            # Вычисляем центр масштабирования
-            x_center = event.xdata
-            y_center = event.ydata
-            
-            # Масштабируем относительно центра
-            new_x_range = (x_max - x_min) * zoom_factor
-            new_y_range = (y_max - y_min) * zoom_factor
-            
-            # Устанавливаем новые границы
-            self.axes.set_xlim(x_center - new_x_range/2, x_center + new_x_range/2)
-            self.axes.set_ylim(y_center - new_y_range/2, y_center + new_y_range/2)
-            
-            self.draw()
-        
-    def plot_analytical_function(self, function_str: str):
-        """Построение аналитической функции"""
-        try:
-            self.axes.clear()
-            
-            # Восстанавливаем настройки осей
-            self.axes.grid(True, linestyle='--', alpha=0.7)
-            self.axes.axhline(y=0, color='k', linewidth=1)
-            self.axes.axvline(x=0, color='k', linewidth=1)
-            self.axes.set_xlabel('X')
-            self.axes.set_ylabel('Y')
-            self.axes.set_aspect('equal')
-            
-            # Устанавливаем деления с шагом 1
-            self.axes.xaxis.set_major_locator(ticker.MultipleLocator(1))
-            self.axes.yaxis.set_major_locator(ticker.MultipleLocator(1))
-            
-            # Фиксированный размер экрана
-            self.axes.set_xlim(self.fixed_xlim)
-            self.axes.set_ylim(self.fixed_ylim)
-            
-            # Генерируем точки для графика в увеличенном диапазоне для плавного перемещения
-            x = np.linspace(-50, 50, 4000)
-            
-            try:
-                # Безопасное вычисление функции
-                y = self.evaluate_function(function_str, x)
-                
-                # Ищем разрывы и разделяем на сегменты
-                segments = self.find_continuous_segments_with_breaks(x, y, function_str)
-                
-                # Рисуем каждый сегмент отдельно
-                for i, (seg_x, seg_y) in enumerate(segments):
-                    if len(seg_x) > 1:
-                        # Фильтруем точки, которые находятся в разумных пределах для отображения
-                        mask = (seg_y >= -1000) & (seg_y <= 1000)
-                        seg_x_filtered = seg_x[mask]
-                        seg_y_filtered = seg_y[mask]
-                        
-                        if len(seg_x_filtered) > 1:
-                            self.axes.plot(seg_x_filtered, seg_y_filtered, 'r-', linewidth=2, label='f(x)' if i == 0 else "")
-                
-                self.axes.set_title(f'График функции: {function_str}')
-                
-                if len(segments) > 1:
-                    self.axes.legend()
-                    
-                self.current_function = function_str
-                self.is_analytical = True
-                self.draw()
-                
-            except Exception as e:
-                raise ValueError(f"Ошибка вычисления функции: {str(e)}")
-                
-        except Exception as e:
-            raise ValueError(f"Ошибка построения графика: {str(e)}")
-    
-    def plot_tabular_function(self, points: List[Tuple[float, float]]):
-        """Построение табличной функции"""
-        try:
-            self.axes.clear()
-            
-            # Восстанавливаем настройки осей
-            self.axes.grid(True, linestyle='--', alpha=0.7)
-            self.axes.axhline(y=0, color='k', linewidth=1)
-            self.axes.axvline(x=0, color='k', linewidth=1)
-            self.axes.set_xlabel('X')
-            self.axes.set_ylabel('Y')
-            self.axes.set_aspect('equal')
-            
-            # Устанавливаем деления с шагом 1
-            self.axes.xaxis.set_major_locator(ticker.MultipleLocator(1))
-            self.axes.yaxis.set_major_locator(ticker.MultipleLocator(1))
-            
-            # Фиксированный размер экрана
-            self.axes.set_xlim(self.fixed_xlim)
-            self.axes.set_ylim(self.fixed_ylim)
-            
-            if not points:
-                raise ValueError("Нет данных для построения")
-            
-            # Разделяем координаты
-            x_vals = [p[0] for p in points]
-            y_vals = [p[1] for p in points]
-            
-            # Сортируем по X для правильного соединения точек
-            sorted_points = sorted(zip(x_vals, y_vals), key=lambda p: p[0])
-            x_sorted = [p[0] for p in sorted_points]
-            y_sorted = [p[1] for p in sorted_points]
-            
-            # Рисуем линии и точки
-            self.axes.plot(x_sorted, y_sorted, 'b-', linewidth=1, alpha=0.7, label='Линия')
-            self.axes.plot(x_sorted, y_sorted, 'bo', markersize=3, label='Точки')
-            
-            self.axes.set_title('Табличная функция')
-            self.axes.legend()
-            self.tabular_data = points
-            self.is_analytical = False
-            self.draw()
-            
-        except Exception as e:
-            raise ValueError(f"Ошибка построения табличной функции: {str(e)}")
-    
-    def evaluate_function(self, function_str: str, x: np.ndarray) -> np.ndarray:
-        """Вычисление значения функции для массива x"""
-        # Обрабатываем функцию для numpy
-        expr = function_str.lower()
-        
-        # Заменяем математические функции
-        expr = expr.replace('^', '**')
-        expr = expr.replace('sin', 'np.sin')
-        expr = expr.replace('cos', 'np.cos')
-        expr = expr.replace('tan', 'np.tan')
-        expr = expr.replace('exp', 'np.exp')
-        expr = expr.replace('log', 'np.log')
-        expr = expr.replace('sqrt', 'np.sqrt')
-        expr = expr.replace('abs', 'np.abs')
-        
-        # Добавляем умножение где нужно
-        expr = re.sub(r'(\d)([a-zA-Z\(])', r'\1*\2', expr)
-        expr = re.sub(r'([a-zA-Z\)])(\d)', r'\1*\2', expr)
-        
-        # Безопасное вычисление
-        try:
-            y = eval(expr, {'np': np, 'x': x, 'pi': np.pi, 'e': np.e})
-            return np.array(y, dtype=float)
-        except Exception as e:
-            raise ValueError(f"Некорректное выражение: {function_str}")
-    
-    def find_continuous_segments_with_breaks(self, x: np.ndarray, y: np.ndarray, function_str: str) -> List[Tuple[np.ndarray, np.ndarray]]:
-        """Нахождение непрерывных сегментов функции с улучшенным обнаружением разрывов"""
-        segments = []
-        current_segment_x = []
-        current_segment_y = []
-        
-        for i in range(len(x)):
-            current_x = x[i]
-            current_y = y[i]
-            
-            # Проверяем, является ли точка корректной
-            is_valid = self.is_valid_point(current_y)
-            
-            if is_valid:
-                # Проверяем, не является ли это разрывом
-                if current_segment_x and self.is_discontinuity(current_segment_x[-1], current_segment_y[-1], 
-                                                             current_x, current_y, function_str):
-                    # Сохраняем текущий сегмент и начинаем новый
-                    if len(current_segment_x) >= 2:
-                        segments.append((np.array(current_segment_x), np.array(current_segment_y)))
-                    current_segment_x = [current_x]
-                    current_segment_y = [current_y]
-                else:
-                    # Добавляем точку к текущему сегменту
-                    current_segment_x.append(current_x)
-                    current_segment_y.append(current_y)
-            else:
-                # Некорректная точка - заканчиваем текущий сегмент
-                if len(current_segment_x) >= 2:
-                    segments.append((np.array(current_segment_x), np.array(current_segment_y)))
-                current_segment_x = []
-                current_segment_y = []
-        
-        # Добавляем последний сегмент, если он есть
-        if len(current_segment_x) >= 2:
-            segments.append((np.array(current_segment_x), np.array(current_segment_y)))
-        
-        return segments
-    
-    def is_valid_point(self, y: float) -> bool:
-        """Проверка, является ли точка корректной"""
-        return np.isfinite(y) and abs(y) < 1e6  # Увеличиваем порог для больших функций
-    
-    def is_discontinuity(self, prev_x: float, prev_y: float, curr_x: float, curr_y: float, function_str: str) -> bool:
-        """Проверка, является ли переход между точками разрывом"""
-        # Вычисляем производную (наклон) между точками
-        dx = curr_x - prev_x
-        dy = curr_y - prev_y
-        
-        if dx == 0:
-            return False
-        
-        slope = abs(dy / dx)
-        
-        # 1. Проверка на слишком большой наклон (вертикальные асимптоты)
-        if slope > 1000:  # Порог для обнаружения почти вертикальных скачков
-            return True
-        
-        # 2. Проверка на известные точки разрыва для конкретных функций
-        if self.has_known_discontinuity(prev_x, curr_x, function_str):
-            return True
-        
-        # 3. Проверка на скачок значения функции
-        if abs(dy) > 10 and dx < 0.1:  # Большое изменение Y при малом изменении X
-            return True
-        
-        # 4. Проверка на смену знака с большим скачком (для функций типа 1/x)
-        if prev_y * curr_y < 0 and abs(dy) > 5:
-            return True
-        
-        return False
-    
-    def has_known_discontinuity(self, x1: float, x2: float, function_str: str) -> bool:
-        """Проверка известных точек разрыва для различных функций"""
-        func_lower = function_str.lower()
-        
-        # Для рациональных функций с делением на x
-        if any(pattern in func_lower for pattern in ['/x', '1/x', '(1/x)', 'x^(-1)']):
-            # Проверяем, пересекает ли отрезок x=0
-            if x1 * x2 <= 0 and abs(x1) > 1e-10 and abs(x2) > 1e-10:
-                return True
-        
-        # Для tan(x) - разрывы в pi/2 + n*pi
-        if 'tan' in func_lower:
-            # Проверяем пересечение с точками (n+0.5)*pi
-            for n in range(-10, 11):
-                discontinuity = n * np.pi + np.pi/2
-                if min(x1, x2) < discontinuity < max(x1, x2):
-                    return True
-        
-        # Для функций с логарифмом - разрывы при x <= 0
-        if 'log' in func_lower and not any(f in func_lower for f in ['log10', 'log2']):
-            if x1 <= 0 or x2 <= 0:
-                return True
-        
-        # Для функций с квадратным корнем - разрывы при x < 0
-        if 'sqrt' in func_lower:
-            if x1 < 0 or x2 < 0:
-                return True
-        
-        # Для функций с делением на выражения, содержащие x
-        if '/' in func_lower and 'x' in func_lower.split('/')[1]:
-            # Простая проверка: если знаменатель близок к 0
-            try:
-                # Вычисляем знаменатель в средней точке
-                mid_x = (x1 + x2) / 2
-                denominator_expr = func_lower.split('/')[1].split(')')[0] if ')' in func_lower.split('/')[1] else func_lower.split('/')[1]
-                denominator_value = self.evaluate_function(denominator_expr, np.array([mid_x]))[0]
-                if abs(denominator_value) < 0.1:
-                    return True
-            except:
-                pass
-        
-        return False
-    
-    def reset_view(self):
-        """Сброс вида графика к виду по умолчанию"""
-        self.axes.clear()
+
+    def _setup_axes(self):
+        """Настройка базового вида (без делений)"""
         self.axes.grid(True, linestyle='--', alpha=0.7)
         self.axes.axhline(y=0, color='k', linewidth=1)
         self.axes.axvline(x=0, color='k', linewidth=1)
         self.axes.set_xlabel('X')
         self.axes.set_ylabel('Y')
         self.axes.set_aspect('equal')
-        
-        # Устанавливаем деления с шагом 1
-        self.axes.xaxis.set_major_locator(ticker.MultipleLocator(1))
-        self.axes.yaxis.set_major_locator(ticker.MultipleLocator(1))
-        
-        # Устанавливаем фиксированный размер экрана
+
+    def _update_ticks(self):
+        """Автоматическая настройка шага и формата делений"""
+        xlim = self.axes.get_xlim()
+        ylim = self.axes.get_ylim()
+        x_range = xlim[1] - xlim[0]
+        y_range = ylim[1] - ylim[0]
+
+        def round_step(value):
+            if value <= 0:
+                return 1.0
+            log_val = math.floor(math.log10(value))
+            mantissa = value / (10 ** log_val)
+            if mantissa <= 1:
+                return 1 * (10 ** log_val)
+            elif mantissa <= 2:
+                return 2 * (10 ** log_val)
+            elif mantissa <= 5:
+                return 5 * (10 ** log_val)
+            else:
+                return 10 * (10 ** log_val)
+
+        x_step = round_step(x_range / 8)
+        y_step = round_step(y_range / 8)
+
+        self.axes.xaxis.set_major_locator(ticker.MultipleLocator(x_step))
+        self.axes.yaxis.set_major_locator(ticker.MultipleLocator(y_step))
+        self.axes.xaxis.set_major_formatter(ticker.FormatStrFormatter('%.3f'))
+        self.axes.yaxis.set_major_formatter(ticker.FormatStrFormatter('%.3f'))
+
+    def get_view_params(self):
+        xlim = self.axes.get_xlim()
+        ylim = self.axes.get_ylim()
+        center_x = (xlim[0] + xlim[1]) / 2
+        center_y = (ylim[0] + ylim[1]) / 2
+        scale = (xlim[1] - xlim[0]) / 20.0
+        return center_x, center_y, scale
+
+    def set_view(self, offset_x, offset_y, scale):
+        x_range = 20.0 * scale
+        y_range = 20.0 * scale
+        self.axes.set_xlim(offset_x - x_range/2, offset_x + x_range/2)
+        self.axes.set_ylim(offset_y - y_range/2, offset_y + y_range/2)
+        self._update_ticks()
+        self.draw()
+
+    def plot_analytical_function(self, function_str: str):
+        try:
+            self.axes.clear()
+            self._setup_axes()
+            self.axes.set_xlim(self.fixed_xlim)
+            self.axes.set_ylim(self.fixed_ylim)
+            self._update_ticks()
+
+            expr = function_str.strip()
+            expr = re.sub(r'\bln\s*\(', 'log(', expr)
+            expr = expr.replace('^', '**')
+
+            def real_cbrt(z):
+                return np.sign(z) * np.abs(z) ** (1/3)
+
+            expr = re.sub(r'(.+?)\s*\*\*\s*\(?\s*1\s*/\s*3\s*\)?', r'real_cbrt(\1)', expr)
+
+            x = np.linspace(-50, 50, 4000)
+            local_dict = {
+                'x': x,
+                'np': np,
+                'sin': np.sin,
+                'cos': np.cos,
+                'tan': np.tan,
+                'exp': np.exp,
+                'log': np.log,
+                'log10': np.log10,
+                'sqrt': np.sqrt,
+                'abs': np.abs,
+                'pi': np.pi,
+                'e': np.e,
+                'cbrt': np.cbrt,
+                'real_cbrt': real_cbrt
+            }
+
+            import warnings
+            with warnings.catch_warnings():
+                warnings.simplefilter("ignore")
+                y = eval(expr, {"__builtins__": {}}, local_dict)
+
+            y = np.where(np.isinf(y) | np.isnan(y), np.nan, y)
+            y_view_range = self.axes.get_ylim()[1] - self.axes.get_ylim()[0]
+            if y_view_range > 0:
+                threshold = 10 * y_view_range
+                y = np.where(np.abs(y) > threshold, np.nan, y)
+                dy = np.diff(y, prepend=y[0])
+                jump_threshold = 5 * y_view_range
+                large_jumps = np.abs(dy) > jump_threshold
+                y = np.where(large_jumps, np.nan, y)
+
+            valid = ~np.isnan(y)
+            if np.any(valid):
+                segments = []
+                start = None
+                for i, is_valid in enumerate(valid):
+                    if is_valid and start is None:
+                        start = i
+                    elif not is_valid and start is not None:
+                        segments.append((start, i))
+                        start = None
+                if start is not None:
+                    segments.append((start, len(valid)))
+                for s, e in segments:
+                    self.axes.plot(x[s:e], y[s:e], 'r-', linewidth=2)
+
+            self.axes.set_title(f'График функции: {function_str}')
+            self.current_function = function_str
+            self.is_analytical = True
+            self.draw()
+
+        except Exception as e:
+            raise ValueError(f"Ошибка построения: {str(e)}")
+
+    def plot_tabular_function(self, points: List[Tuple[float, float]]):
+        try:
+            self.axes.clear()
+            self._setup_axes()
+            self.axes.set_xlim(self.fixed_xlim)
+            self.axes.set_ylim(self.fixed_ylim)
+            self._update_ticks()
+
+            if not points:
+                raise ValueError("Нет данных")
+
+            x_vals = [p[0] for p in points]
+            y_vals = [p[1] for p in points]
+            sorted_points = sorted(zip(x_vals, y_vals), key=lambda p: p[0])
+            x_sorted, y_sorted = zip(*sorted_points)
+
+            self.axes.plot(x_sorted, y_sorted, 'b-', linewidth=1, alpha=0.7)
+            self.axes.plot(x_sorted, y_sorted, 'bo', markersize=3)
+            self.axes.set_title('Табличная функция')
+            self.tabular_data = points
+            self.is_analytical = False
+            self.draw()
+
+        except Exception as e:
+            raise ValueError(f"Ошибка табличной функции: {str(e)}")
+
+    def reset_view(self):
+        self.axes.clear()
+        self._setup_axes()
         self.axes.set_xlim(self.fixed_xlim)
         self.axes.set_ylim(self.fixed_ylim)
+        self._update_ticks()
         self.axes.set_title('График функции')
         self.draw()
 
@@ -382,134 +198,92 @@ class FunctionPlotter(QMainWindow):
         super().__init__()
         self.tabular_points = []
         self.init_ui()
-    
+
     def init_ui(self):
         self.setWindowTitle('Function Plotter - Построитель графиков')
         self.setGeometry(100, 100, 1200, 700)
-        
-        # Центральный виджет
+
         central_widget = QWidget()
         self.setCentralWidget(central_widget)
-        
-        # Основной layout
         main_layout = QHBoxLayout(central_widget)
-        
-        # Панель управления слева
+
         control_panel = QWidget()
-        control_panel.setFixedWidth(300)
+        control_panel.setFixedWidth(320)
         control_layout = QVBoxLayout(control_panel)
-        
-        # Группа выбора типа функции
+
+        # Тип функции
         type_group = QGroupBox("Тип функции:")
         type_layout = QVBoxLayout(type_group)
-        
         self.radio_analytical = QRadioButton("Аналитическая функция")
         self.radio_tabular = QRadioButton("Табличная функция")
         self.radio_analytical.setChecked(True)
-        
         type_layout.addWidget(self.radio_analytical)
         type_layout.addWidget(self.radio_tabular)
-        
-        # Поле для аналитической функции
-        function_group = QGroupBox("Аналитическая функция:")
+
+        # Аналитическая функция
+        function_group = QGroupBox("Формула:")
         function_layout = QVBoxLayout(function_group)
-        
-        self.txt_function = QLineEdit("x")
-        self.txt_function.setPlaceholderText("Введите функцию (например: x, 1/x, sin(x))")
+        self.txt_function = QLineEdit("x^(1/3)")
+        self.txt_function.setPlaceholderText("Например: x^(1/3), 1/x, ln(x)")
         function_layout.addWidget(QLabel("Функция:"))
         function_layout.addWidget(self.txt_function)
-        
-        # Примеры функций
-        examples_group = QGroupBox("Примеры функций:")
+
+        # Примеры
+        examples_group = QGroupBox("Примеры:")
         examples_layout = QVBoxLayout(examples_group)
-        
-        examples = [
-            "x",
-            "x^2",
-            "sin(x)",
-            "1/x",
-            "tan(x)", 
-            "1/(x-1)",
-            "log(x+10)",
-            "sqrt(x+10)"
-        ]
-        
-        for example in examples:
-            btn = QPushButton(example)
-            btn.clicked.connect(lambda checked, ex=example: self.txt_function.setText(ex))
+        examples = ["x^(1/3)", "1/x", "tan(x)", "ln(x)", "x^2", "sin(x)"]
+        for ex in examples:
+            btn = QPushButton(ex)
+            btn.clicked.connect(lambda _, e=ex: self.txt_function.setText(e))
             examples_layout.addWidget(btn)
-        
-        # Кнопки управления
+
+        # Кнопки
         self.btn_plot = QPushButton("Построить график")
         self.btn_plot.setStyleSheet("background-color: #4682B4; color: white;")
-        
         self.btn_load_file = QPushButton("Загрузить TXT файл")
         self.btn_load_file.setStyleSheet("background-color: #32CD32; color: white;")
         self.btn_load_file.setEnabled(False)
-        
         self.btn_reset = QPushButton("Сбросить вид")
         self.btn_reset.setStyleSheet("background-color: #FFA500; color: white;")
-        
-        # Кнопки масштабирования
-        scale_group = QGroupBox("Управление:")
-        scale_layout = QHBoxLayout(scale_group)
-        
-        self.btn_zoom_in = QPushButton("+")
-        self.btn_zoom_out = QPushButton("-")
-        self.btn_fit = QPushButton("Сброс")
-        
-        self.btn_zoom_in.setFixedWidth(40)
-        self.btn_zoom_out.setFixedWidth(40)
-        self.btn_fit.setFixedWidth(60)
-        
-        scale_layout.addWidget(self.btn_zoom_in)
-        scale_layout.addWidget(self.btn_zoom_out)
-        scale_layout.addWidget(self.btn_fit)
-        
-        # Статус
-        self.lbl_status = QLabel("Готов к работе")
-        self.lbl_status.setStyleSheet("border: 1px solid gray; padding: 5px;")
-        self.lbl_status.setMinimumHeight(40)
-        
-        # Поле для отображения содержимого файла
+
+        # Масштаб
+        scale_group = QGroupBox("Масштаб:")
+        scale_layout = QVBoxLayout(scale_group)
+        self.slider_scale = QSlider(Qt.Horizontal)
+        self.slider_scale.setRange(1, 10000)  # 0.001 до 10.0
+        self.slider_scale.setValue(1000)       # 1.0
+        self.slider_scale.valueChanged.connect(self.on_scale_changed)
+        self.label_scale = QLabel("Масштаб: 1.000")
+        scale_layout.addWidget(self.label_scale)
+        scale_layout.addWidget(self.slider_scale)
+
+        # Перемещение
+        pan_group = QGroupBox("Перемещение:")
+        pan_layout = QVBoxLayout(pan_group)
+        self.slider_pan_x = QSlider(Qt.Horizontal)
+        self.slider_pan_x.setRange(-2000, 2000)
+        self.slider_pan_x.setValue(0)
+        self.slider_pan_x.valueChanged.connect(self.on_pan_x_changed)
+        self.slider_pan_y = QSlider(Qt.Horizontal)
+        self.slider_pan_y.setRange(-2000, 2000)
+        self.slider_pan_y.setValue(0)
+        self.slider_pan_y.valueChanged.connect(self.on_pan_y_changed)
+        pan_layout.addWidget(QLabel("По X:"))
+        pan_layout.addWidget(self.slider_pan_x)
+        pan_layout.addWidget(QLabel("По Y:"))
+        pan_layout.addWidget(self.slider_pan_y)
+
+        # Содержимое файла
         self.txt_file_content = QTextEdit()
         self.txt_file_content.setReadOnly(True)
-        self.txt_file_content.setMaximumHeight(200)
+        self.txt_file_content.setMaximumHeight(150)
         self.txt_file_content.setVisible(False)
-        
-        # Инструкция по формату файла
-        format_group = QGroupBox("Формат TXT файла:")
+
+        format_group = QGroupBox("Формат TXT:")
         format_layout = QVBoxLayout(format_group)
-        format_label = QLabel("Файл должен содержать пары чисел (X и Y) через пробел, запятую или точку с запятой.\n"
-                             "Каждая пара на новой строке.\n\n"
-                             "Пример:\n"
-                             "1.0 2.0\n"
-                             "2.0 4.0\n"
-                             "3.0 6.0")
-        format_label.setWordWrap(True)
-        format_layout.addWidget(format_label)
-        
-        # Информация о управлении
-        control_info_group = QGroupBox("Управление графиком:")
-        control_info_layout = QVBoxLayout(control_info_group)
-        control_info_label = QLabel("• ЛКМ + перемещение - перетаскивание графика\n"
-                                   "• Колесико мыши - масштабирование\n"
-                                   "• Кнопки +/- - масштабирование\n"
-                                   "• Сброс - вернуться к начальному виду")
-        control_info_label.setWordWrap(True)
-        control_info_layout.addWidget(control_info_label)
-        
-        # Информация о осях
-        axes_group = QGroupBox("Настройки осей:")
-        axes_layout = QVBoxLayout(axes_group)
-        axes_label = QLabel("• Начальный размер: -10 до 10\n"
-                           "• Цена деления: 1\n"
-                           "• Масштаб: одинаковый\n"
-                           "• Сетка: с шагом 1")
-        axes_label.setWordWrap(True)
-        axes_layout.addWidget(axes_label)
-        
-        # Добавление элементов на панель управления
+        format_layout.addWidget(QLabel("Пары чисел через пробел/запятую.\nКаждая пара — новая строка."))
+
+        # Сборка
         control_layout.addWidget(type_group)
         control_layout.addWidget(function_group)
         control_layout.addWidget(examples_group)
@@ -517,200 +291,103 @@ class FunctionPlotter(QMainWindow):
         control_layout.addWidget(self.btn_load_file)
         control_layout.addWidget(self.btn_reset)
         control_layout.addWidget(scale_group)
-        control_layout.addWidget(control_info_group)
-        control_layout.addWidget(axes_group)
+        control_layout.addWidget(pan_group)
         control_layout.addWidget(format_group)
-        control_layout.addWidget(QLabel("Статус:"))
-        control_layout.addWidget(self.lbl_status)
         control_layout.addWidget(QLabel("Содержимое файла:"))
         control_layout.addWidget(self.txt_file_content)
         control_layout.addStretch()
-        
-        # Область графика
+
         self.plot_canvas = PlotCanvas(self, width=8, height=6)
-        
-        # Добавление в основной layout
         main_layout.addWidget(control_panel)
         main_layout.addWidget(self.plot_canvas)
-        
-        # Подключение сигналов
+
+        # Сигналы
         self.radio_analytical.toggled.connect(self.on_function_type_changed)
-        self.radio_tabular.toggled.connect(self.on_function_type_changed)
         self.btn_plot.clicked.connect(self.on_plot_clicked)
         self.btn_load_file.clicked.connect(self.on_load_file_clicked)
         self.btn_reset.clicked.connect(self.on_reset_clicked)
-        self.btn_zoom_in.clicked.connect(self.on_zoom_in)
-        self.btn_zoom_out.clicked.connect(self.on_zoom_out)
-    
+
     def on_function_type_changed(self):
-        """Обработчик изменения типа функции"""
         is_analytical = self.radio_analytical.isChecked()
         self.txt_function.setEnabled(is_analytical)
         self.btn_load_file.setEnabled(not is_analytical)
         self.txt_file_content.setVisible(not is_analytical)
-    
+
     def on_plot_clicked(self):
-        """Обработчик кнопки построения графика"""
         try:
             if self.radio_analytical.isChecked():
-                self.plot_analytical_function()
+                self.plot_canvas.plot_analytical_function(self.txt_function.text())
             else:
-                self.plot_tabular_function()
+                if not self.tabular_points:
+                    raise ValueError("Сначала загрузите файл")
+                self.plot_canvas.plot_tabular_function(self.tabular_points)
         except Exception as e:
-            self.lbl_status.setText(f"Ошибка: {str(e)}")
-            QMessageBox.critical(self, "Ошибка", f"Ошибка построения графика: {str(e)}")
-    
+            QMessageBox.critical(self, "Ошибка", str(e))
+
     def on_load_file_clicked(self):
-        """Обработчик загрузки файла"""
         try:
-            file_path, _ = QFileDialog.getOpenFileName(
-                self, 
-                "Выберите TXT файл с данными", 
-                "", 
-                "Text files (*.txt);;All files (*.*)"
-            )
-            
-            if file_path:
-                self.load_tabular_data(file_path)
-                self.lbl_status.setText(f"Файл загружен: {file_path.split('/')[-1]}")
-                
+            path, _ = QFileDialog.getOpenFileName(self, "TXT файл", "", "Text files (*.txt)")
+            if path:
+                self.load_tabular_data(path)
         except Exception as e:
-            self.lbl_status.setText(f"Ошибка загрузки файла: {str(e)}")
-            QMessageBox.critical(self, "Ошибка", f"Ошибка загрузки файла: {str(e)}")
-    
+            QMessageBox.critical(self, "Ошибка", str(e))
+
     def on_reset_clicked(self):
-        """Обработчик сброса вида"""
         self.plot_canvas.reset_view()
-        self.lbl_status.setText("Вид сброшен (масштаб: -10 до 10)")
-    
-    def on_zoom_in(self):
-        """Увеличение масштаба"""
-        xlim = self.plot_canvas.axes.get_xlim()
-        ylim = self.plot_canvas.axes.get_ylim()
-        
-        # Уменьшаем диапазон на 20%
-        x_center = (xlim[0] + xlim[1]) / 2
-        y_center = (ylim[0] + ylim[1]) / 2
-        x_range = (xlim[1] - xlim[0]) * 0.8
-        y_range = (ylim[1] - ylim[0]) * 0.8
-        
-        self.plot_canvas.axes.set_xlim(x_center - x_range/2, x_center + x_range/2)
-        self.plot_canvas.axes.set_ylim(y_center - y_range/2, y_center + y_range/2)
-        self.plot_canvas.draw()
-        self.lbl_status.setText("Масштаб увеличен")
-    
-    def on_zoom_out(self):
-        """Уменьшение масштаба"""
-        xlim = self.plot_canvas.axes.get_xlim()
-        ylim = self.plot_canvas.axes.get_ylim()
-        
-        # Увеличиваем диапазон на 25%
-        x_center = (xlim[0] + xlim[1]) / 2
-        y_center = (ylim[0] + ylim[1]) / 2
-        x_range = (xlim[1] - xlim[0]) * 1.25
-        y_range = (ylim[1] - ylim[0]) * 1.25
-        
-        self.plot_canvas.axes.set_xlim(x_center - x_range/2, x_center + x_range/2)
-        self.plot_canvas.axes.set_ylim(y_center - y_range/2, y_center + y_range/2)
-        self.plot_canvas.draw()
-        self.lbl_status.setText("Масштаб уменьшен")
-    
-    def plot_analytical_function(self):
-        """Построение аналитической функции"""
-        function_text = self.txt_function.text().strip()
-        if not function_text:
-            raise ValueError("Введите функцию")
-        
-        self.plot_canvas.plot_analytical_function(function_text)
-        self.lbl_status.setText("График аналитической функции построен")
-    
-    def plot_tabular_function(self):
-        """Построение табличной функции"""
-        if not self.tabular_points:
-            raise ValueError("Сначала загрузите файл с данными")
-        
-        self.plot_canvas.plot_tabular_function(self.tabular_points)
-        self.lbl_status.setText("График табличной функции построен")
-    
+        self.slider_pan_x.setValue(0)
+        self.slider_pan_y.setValue(0)
+        self.slider_scale.setValue(1000)
+        self.label_scale.setText("Масштаб: 1.000")
+
+    def on_scale_changed(self, value):
+        scale = value / 1000.0
+        self.label_scale.setText(f"Масштаб: {scale:.3f}")
+        cx, cy, _ = self.plot_canvas.get_view_params()
+        self.plot_canvas.set_view(cx, cy, scale)
+
+    def on_pan_x_changed(self, value):
+        offset_x = value / 100.0
+        _, cy, scale = self.plot_canvas.get_view_params()
+        self.plot_canvas.set_view(offset_x, cy, scale)
+
+    def on_pan_y_changed(self, value):
+        offset_y = value / 100.0
+        cx, _, scale = self.plot_canvas.get_view_params()
+        self.plot_canvas.set_view(cx, offset_y, scale)
+
     def load_tabular_data(self, file_path: str):
-        """Загрузка табличных данных из TXT файла"""
         self.tabular_points = []
-        content_lines = []
-        
+        lines_out = []
         try:
-            with open(file_path, 'r', encoding='utf-8') as file:
-                lines = file.readlines()
-            
-            content_lines.append(f"Загружен файл: {file_path}")
-            content_lines.append("")
-            
-            points_loaded = 0
-            line_number = 0
-            
-            for line in lines:
-                line_number += 1
-                line = line.strip()
-                
-                # Пропускаем пустые строки и комментарии
-                if not line or line.startswith('#') or line.startswith('//'):
-                    continue
-                
-                content_lines.append(f"Строка {line_number}: {line}")
-                
-                # Разные варианты разделителей: пробел, запятая, точка с запятой, табуляция
-                parts = re.split(r'[\s,;]+', line)
-                numbers = []
-                
-                for part in parts:
-                    part = part.strip()
-                    if part:
-                        try:
-                            # Заменяем запятую на точку для корректного преобразования чисел
-                            part = part.replace(',', '.')
-                            num = float(part)
-                            numbers.append(num)
-                        except ValueError:
-                            # Если не число, пропускаем эту часть
-                            continue
-                
-                if len(numbers) >= 2:
-                    x_val = numbers[0]
-                    y_val = numbers[1]
-                    self.tabular_points.append((x_val, y_val))
-                    content_lines.append(f"  -> точка: x={x_val:.4f}, y={y_val:.4f}")
-                    points_loaded += 1
-                else:
-                    content_lines.append(f"  -> ошибка: недостаточно чисел (найдено {len(numbers)})")
-            
-            content_lines.append("")
-            content_lines.append(f"Успешно загружено точек: {points_loaded}")
-            
-            if points_loaded == 0:
-                raise ValueError("Не удалось загрузить данные из файла. Проверьте формат.")
-            
-            # Показываем статистику по данным
-            if points_loaded > 0:
-                x_vals = [p[0] for p in self.tabular_points]
-                y_vals = [p[1] for p in self.tabular_points]
-                content_lines.append(f"Диапазон X: [{min(x_vals):.4f}, {max(x_vals):.4f}]")
-                content_lines.append(f"Диапазон Y: [{min(y_vals):.4f}, {max(y_vals):.4f}]")
-            
+            with open(file_path, 'r', encoding='utf-8') as f:
+                for line in f:
+                    line = line.strip()
+                    if not line or line.startswith(('#', '//')):
+                        continue
+                    parts = re.split(r'[\s,;]+', line)
+                    nums = []
+                    for p in parts:
+                        p = p.strip().replace(',', '.')
+                        if p:
+                            try:
+                                nums.append(float(p))
+                            except:
+                                pass
+                    if len(nums) >= 2:
+                        self.tabular_points.append((nums[0], nums[1]))
+                        lines_out.append(f"{nums[0]:.4f} {nums[1]:.4f}")
+            if not self.tabular_points:
+                raise ValueError("Нет валидных данных")
+            self.txt_file_content.setText('\n'.join(lines_out))
         except Exception as e:
-            raise ValueError(f"Ошибка чтения файла: {str(e)}")
-        
-        # Обновляем текстовое поле с содержимым файла
-        self.txt_file_content.setText('\n'.join(content_lines))
+            raise ValueError(f"Ошибка файла: {e}")
 
 
 def main():
     app = QApplication(sys.argv)
-    
-    # Установка стиля
     app.setStyle('Fusion')
-    
-    plotter = FunctionPlotter()
-    plotter.show()
-    
+    window = FunctionPlotter()
+    window.show()
     sys.exit(app.exec_())
 
 
