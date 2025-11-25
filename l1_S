@@ -1,35 +1,334 @@
-using System.IO.Pipes;
-using System.Runtime.CompilerServices;
-using System.Runtime.InteropServices;
-namespace Server;
+import tkinter as tk
+from tkinter import messagebox
+import random
+from collections import deque
 
-internal class Program
-{
-    public struct AddedData
-    {
-        public int a;
-        public int b;
-    }
-    public static void Main()
-    {
-        var data = new AddedData {a = 15, b = 10}; 
+class MazeSolver:
+    def __init__(self, root):
+        self.root = root
+        self.root.title("Лабиринт — редактор + пути")
+        self.root.geometry("1200x900")
 
-        Console.WriteLine("Waiting for an answer\n");
+        self.rows = 15
+        self.cols = 15
+        self.maze = []
+        self.start = (0, 0)
+        self.end = (self.rows - 1, self.cols - 1)
+        self.all_paths = []
+        self.shortest_path = None
+        self.current_path_index = 0
+        self.cell_size = 30
+        self.mode = None  
 
-        var stream = new NamedPipeServerStream("brbr", PipeDirection.InOut);
-        stream.WaitForConnection();
+        self.create_widgets()
+        self.generate_maze()
 
-        Console.WriteLine("The client is connected\n");
-        Console.WriteLine($"Sending data: {data.a}, {data.b}\n");
+    def create_widgets(self):
+        control_frame = tk.Frame(self.root)
+        control_frame.pack(pady=5)
 
-        byte[] flow = new byte[Unsafe.SizeOf<AddedData>()];
-        MemoryMarshal.Write<AddedData>(flow, ref data);
-        stream.Write(flow);
+        tk.Button(control_frame, text="Сгенерировать лабиринт", command=self.generate_maze).pack(side=tk.LEFT, padx=3)
+        tk.Button(control_frame, text="Показать кратчайший путь", command=self.show_shortest_path).pack(side=tk.LEFT, padx=3)
+        tk.Button(control_frame, text="Показать все возможные пути", command=self.find_all_simple_paths).pack(side=tk.LEFT, padx=3)
+        tk.Button(control_frame, text="Очистить путь", command=self.clear_path).pack(side=tk.LEFT, padx=3)
+        tk.Button(control_frame, text="Следующий", command=self.next_path).pack(side=tk.LEFT, padx=3)
+        tk.Button(control_frame, text="Предыдущий", command=self.prev_path).pack(side=tk.LEFT, padx=3)
 
-        byte[] array = new byte[Unsafe.SizeOf<AddedData>()];
-        stream.Read(array);
+        tk.Label(control_frame, text="Строки:").pack(side=tk.LEFT, padx=3)
+        self.rows_var = tk.IntVar(value=self.rows)
+        tk.Spinbox(control_frame, from_=5, to=30, textvariable=self.rows_var, width=3).pack(side=tk.LEFT, padx=2)
+        tk.Label(control_frame, text="Столбцы:").pack(side=tk.LEFT, padx=3)
+        self.cols_var = tk.IntVar(value=self.cols)
+        tk.Spinbox(control_frame, from_=5, to=30, textvariable=self.cols_var, width=3).pack(side=tk.LEFT, padx=2)
+        tk.Button(control_frame, text="Применить размер", command=self.apply_size).pack(side=tk.LEFT, padx=3)
 
-        var answer = MemoryMarshal.Read<AddedData>(array);
-        Console.WriteLine($"Answer: {answer.a}, {answer.b}\n");                        
-    }
-}
+        help_text = "ЛКМ — переключить стену/проход | ПКМ — установить вход/выход"
+        tk.Label(self.root, text=help_text, bg="#f0f0f0", font=("Arial", 9)).pack(pady=2)
+
+        self.info_label = tk.Label(self.root, bg="white", relief="sunken", padx=10)
+        self.info_label.pack(pady=3, fill=tk.X)
+
+        self.canvas = tk.Canvas(self.root, bg="white")
+        self.canvas.pack(fill=tk.BOTH, expand=True)
+        self.canvas.bind("<Button-1>", self.on_left_click)   
+        self.canvas.bind("<Button-3>", self.on_right_click)  
+
+    def apply_size(self):
+        new_rows = self.rows_var.get()
+        new_cols = self.cols_var.get()
+        if new_rows < 5 or new_cols < 5:
+            messagebox.showwarning("Ошибка", "Минимум 5×5.")
+            return
+        self.rows = new_rows
+        self.cols = new_cols
+        self.generate_maze()
+
+    def generate_maze(self):
+        gen_rows = self.rows if self.rows % 2 == 1 else self.rows + 1
+        gen_cols = self.cols if self.cols % 2 == 1 else self.cols + 1
+
+        maze_full = [[1 for _ in range(gen_cols)] for _ in range(gen_rows)]
+        stack = [(0, 0)]
+        visited = set([(0, 0)])
+        directions = [(0, 1), (1, 0), (0, -1), (-1, 0)]
+
+        while stack:
+            x, y = stack[-1]
+            neighbors = []
+            for dx, dy in directions:
+                nx, ny = x + dx * 2, y + dy * 2
+                if 0 <= nx < gen_rows and 0 <= ny < gen_cols and (nx, ny) not in visited:
+                    neighbors.append((dx, dy, nx, ny))
+            if neighbors:
+                dx, dy, nx, ny = random.choice(neighbors)
+                maze_full[x + dx][y + dy] = 0
+                maze_full[nx][ny] = 0
+                visited.add((nx, ny))
+                stack.append((nx, ny))
+            else:
+                stack.pop()
+
+        self.maze = [row[:self.cols] for row in maze_full[:self.rows]]
+
+        self.start = (0, 0)
+        self.end = (self.rows - 1, self.cols - 1)
+        self.maze[self.start[0]][self.start[1]] = 0
+        self.maze[self.end[0]][self.end[1]] = 0
+
+        self.add_extra_passages(10)
+
+        self.maze[self.start[0]][self.start[1]] = 0
+        self.maze[self.end[0]][self.end[1]] = 0
+
+        self.draw_maze()
+        self.clear_path()
+
+    def add_extra_passages(self, num_extra=10):
+        directions = [(0, 1), (1, 0), (0, -1), (-1, 0)]
+        added = 0
+        attempts = 0
+        while added < num_extra and attempts < 200:
+            x = random.randint(0, self.rows - 1)
+            y = random.randint(0, self.cols - 1)
+            if self.maze[x][y] == 1:
+                pass_neighbors = sum(
+                    1 for dx, dy in directions
+                    if 0 <= x+dx < self.rows and 0 <= y+dy < self.cols and self.maze[x+dx][y+dy] == 0
+                )
+                if pass_neighbors >= 2:
+                    self.maze[x][y] = 0
+                    added += 1
+            attempts += 1
+
+    def draw_maze(self):
+        self.canvas.delete("all")
+        self.cell_size = min(800 // max(self.rows, self.cols), 40)
+        for i in range(self.rows):
+            for j in range(self.cols):
+                x1 = j * self.cell_size
+                y1 = i * self.cell_size
+                x2 = x1 + self.cell_size
+                y2 = y1 + self.cell_size
+                color = "black" if self.maze[i][j] == 1 else "white"
+                self.canvas.create_rectangle(x1, y1, x2, y2, fill=color, outline="gray")
+
+        sx, sy = self.start
+        self.canvas.create_oval(
+            sy * self.cell_size + self.cell_size // 4,
+            sx * self.cell_size + self.cell_size // 4,
+            sy * self.cell_size + 3 * self.cell_size // 4,
+            sx * self.cell_size + 3 * self.cell_size // 4,
+            fill="blue", outline="black", tags="start"
+        )
+
+        ex, ey = self.end
+        self.canvas.create_oval(
+            ey * self.cell_size + self.cell_size // 4,
+            ex * self.cell_size + self.cell_size // 4,
+            ey * self.cell_size + 3 * self.cell_size // 4,
+            ex * self.cell_size + 3 * self.cell_size // 4,
+            fill="red", outline="black", tags="end"
+        )
+
+    def on_left_click(self, event):
+        col = event.x // self.cell_size
+        row = event.y // self.cell_size
+        if 0 <= row < self.rows and 0 <= col < self.cols:
+            if (row, col) == self.start or (row, col) == self.end:
+                return  
+            self.maze[row][col] = 1 - self.maze[row][col]
+            self.draw_maze()
+            self.clear_path()
+
+    def on_right_click(self, event):
+        col = event.x // self.cell_size
+        row = event.y // self.cell_size
+        if 0 <= row < self.rows and 0 <= col < self.cols and self.maze[row][col] == 0:
+            if (row, col) != self.end:
+                self.start = (row, col)
+            else:
+                self.start = (row, col)
+                alt_end = (0, 0) if (row, col) != (0, 0) else (self.rows - 1, self.cols - 1)
+                if self.maze[alt_end[0]][alt_end[1]] == 0:
+                    self.end = alt_end
+                else:
+                    for r, c in [(0,0), (0,self.cols-1), (self.rows-1,0), (self.rows-1,self.cols-1)]:
+                        if (r, c) != self.start and self.maze[r][c] == 0:
+                            self.end = (r, c)
+                            break
+            self.draw_maze()
+            self.clear_path()
+            self.info_label.config(text="Вход/выход обновлены.")
+
+    def show_shortest_path(self):
+        start, end = self.start, self.end
+        if self.maze[start[0]][start[1]] == 1 or self.maze[end[0]][end[1]] == 1:
+            messagebox.showerror("Ошибка", "Вход или выход недоступны!")
+            return
+
+        directions = [(0, 1), (1, 0), (0, -1), (-1, 0)]
+        queue = deque([(start, [start])])
+        visited = {start}
+
+        while queue:
+            (x, y), path = queue.popleft()
+            if (x, y) == end:
+                self.shortest_path = path
+                self.all_paths = [path]
+                self.current_path_index = 0
+                self.mode = "shortest"
+                self.highlight_path(path)
+                steps = len(path) - 1
+                self.info_label.config(text=f"Кратчайший путь: {steps} шагов.")
+                return
+            for dx, dy in directions:
+                nx, ny = x + dx, y + dy
+                if (0 <= nx < self.rows and 0 <= ny < self.cols and
+                    self.maze[nx][ny] == 0 and (nx, ny) not in visited):
+                    visited.add((nx, ny))
+                    queue.append(((nx, ny), path + [(nx, ny)]))
+
+        self.info_label.config(text="Кратчайший путь не найден.")
+
+    def find_all_simple_paths(self):
+        start, end = self.start, self.end
+        if self.maze[start[0]][start[1]] == 1 or self.maze[end[0]][end[1]] == 1:
+            messagebox.showerror("Ошибка", "Вход или выход недоступны!")
+            return
+
+        shortest_len = self._get_shortest_length()
+        if shortest_len is None:
+            self.info_label.config(text="Даже кратчайший путь отсутствует.")
+            return
+
+        max_path_len = min(shortest_len * 2, 51)
+        all_paths = []
+        visited = set()
+        path = []
+
+        def dfs(x, y):
+            if len(all_paths) >= 500:
+                return True
+            if len(path) >= max_path_len:
+                return False
+            if (x, y) == end:
+                all_paths.append(path.copy())
+                return False
+            for dx, dy in [(0,1),(1,0),(0,-1),(-1,0)]:
+                nx, ny = x + dx, y + dy
+                if (0 <= nx < self.rows and 0 <= ny < self.cols and
+                    self.maze[nx][ny] == 0 and (nx, ny) not in visited):
+                    visited.add((nx, ny))
+                    path.append((nx, ny))
+                    stop = dfs(nx, ny)
+                    path.pop()
+                    visited.remove((nx, ny))
+                    if stop:
+                        return True
+            return False
+
+        visited.add(start)
+        path.append(start)
+        dfs(start[0], start[1])
+
+        if not all_paths:
+            self.info_label.config(text="Возможные пути не найдены.")
+            return
+
+        self.all_paths = all_paths[:500]
+        self.shortest_path = None
+        self.mode = "all"
+        self.current_path_index = 0
+        self.highlight_path(self.all_paths[0])
+        total = len(self.all_paths)
+        steps = len(self.all_paths[0]) - 1
+        self.info_label.config(text=f"Найдено {total} возможных путей. Текущий: {steps} шагов. Используйте кнопки для просмотра.")
+
+    def _get_shortest_length(self):
+        start, end = self.start, self.end
+        queue = deque([(start, 1)])
+        visited = {start}
+        directions = [(0,1),(1,0),(0,-1),(-1,0)]
+        while queue:
+            (x, y), dist = queue.popleft()
+            if (x, y) == end:
+                return dist
+            for dx, dy in directions:
+                nx, ny = x + dx, y + dy
+                if (0 <= nx < self.rows and 0 <= ny < self.cols and
+                    self.maze[nx][ny] == 0 and (nx, ny) not in visited):
+                    visited.add((nx, ny))
+                    queue.append(((nx, ny), dist + 1))
+        return None
+
+    def highlight_path(self, path):
+        self.canvas.delete("path")
+        for i, (x, y) in enumerate(path):
+            if (x, y) == self.start or (x, y) == self.end:
+                continue
+            x1 = y * self.cell_size
+            y1 = x * self.cell_size
+            x2 = x1 + self.cell_size
+            y2 = y1 + self.cell_size
+            self.canvas.create_rectangle(x1, y1, x2, y2, fill="green", tags="path")
+
+    def clear_path(self):
+        self.canvas.delete("path")
+        self.shortest_path = None
+        self.all_paths = []
+        self.mode = None
+        self.current_path_index = 0
+
+    def next_path(self):
+        if self.mode == "shortest":
+            steps = len(self.shortest_path) - 1 if self.shortest_path else 0
+            self.info_label.config(text=f"Кратчайший путь: {steps} шагов. (Только один)")
+            return
+        if not self.all_paths:
+            return
+        self.current_path_index = (self.current_path_index + 1) % len(self.all_paths)
+        current_path = self.all_paths[self.current_path_index]
+        self.highlight_path(current_path)
+        total = len(self.all_paths)
+        steps = len(current_path) - 1
+        self.info_label.config(text=f"Путь {self.current_path_index + 1} из {total}. Шагов: {steps}.")
+
+    def prev_path(self):
+        if self.mode == "shortest":
+            steps = len(self.shortest_path) - 1 if self.shortest_path else 0
+            self.info_label.config(text=f"Кратчайший путь: {steps} шагов. (Только один)")
+            return
+        if not self.all_paths:
+            return
+        self.current_path_index = (self.current_path_index - 1) % len(self.all_paths)
+        current_path = self.all_paths[self.current_path_index]
+        self.highlight_path(current_path)
+        total = len(self.all_paths)
+        steps = len(current_path) - 1
+        self.info_label.config(text=f"Путь {self.current_path_index + 1} из {total}. Шагов: {steps}.")
+
+
+if __name__ == "__main__":
+    root = tk.Tk()
+    app = MazeSolver(root)
+    root.mainloop()
