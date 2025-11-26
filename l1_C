@@ -1,12 +1,11 @@
 import sys
 import re
 import math
-from typing import List, Tuple, Optional
+from typing import List, Tuple
 import numpy as np
 from PyQt5.QtWidgets import (QApplication, QMainWindow, QWidget, QVBoxLayout, QHBoxLayout,
                              QRadioButton, QLineEdit, QPushButton, QLabel, QTextEdit,
-                             QFileDialog, QMessageBox, QGroupBox, QSlider, QTableWidget,
-                             QTableWidgetItem, QHeaderView)
+                             QFileDialog, QMessageBox, QGroupBox, QSlider)
 from PyQt5.QtCore import Qt
 from matplotlib.backends.backend_qt5agg import FigureCanvasQTAgg as FigureCanvas
 from matplotlib.figure import Figure
@@ -21,7 +20,7 @@ class PlotCanvas(FigureCanvas):
 
         self.axes = self.fig.add_subplot(111)
         self._setup_axes()
-        self.initial_xlim = (-1.5, 10)
+        self.initial_xlim = (-1.5, 30)  
         self.initial_ylim = (-10, 10)
         self.axes.set_xlim(self.initial_xlim)
         self.axes.set_ylim(self.initial_ylim)
@@ -30,7 +29,6 @@ class PlotCanvas(FigureCanvas):
         self.current_function = ""
         self.is_analytical = True
         self._auto_redraw = False
-        self.solution_points = []
 
     def _setup_axes(self):
         self.axes.grid(True, linestyle='--', alpha=0.7)
@@ -77,8 +75,8 @@ class PlotCanvas(FigureCanvas):
         return center_x, center_y, scale
 
     def set_view(self, offset_x, offset_y, scale):
-        min_scale = 0.001
-        max_scale = 1000.0
+        min_scale = 0.0001  # Минимально допустимый масштаб
+        max_scale = 1000.0  # Максимально допустимый масштаб
         scale = max(min_scale, min(max_scale, scale))
 
         width = 20.0 * scale
@@ -104,25 +102,6 @@ class PlotCanvas(FigureCanvas):
             self.plot_analytical_function(self.current_function)
         finally:
             self._auto_redraw = old_redraw
-
-    def plot_solution_point(self, x: float, y: float):
-        self.solution_points.append((x, y))
-        if self.is_analytical and self.current_function:
-            self.plot_analytical_function(self.current_function)
-        elif hasattr(self, 'tabular_points') and self.tabular_points:
-            self.plot_tabular_function(self.tabular_points)
-        else:
-            if self.current_function:
-                self.plot_analytical_function(self.current_function)
-        self.draw()
-
-    def clear_solution_points(self):
-        self.solution_points = []
-        if self.is_analytical and self.current_function:
-            self.plot_analytical_function(self.current_function)
-        elif hasattr(self, 'tabular_points') and self.tabular_points:
-            self.plot_tabular_function(self.tabular_points)
-        self.draw()
 
     def plot_analytical_function(self, function_str: str):
         try:
@@ -184,7 +163,7 @@ class PlotCanvas(FigureCanvas):
                 start = boundaries[i]
                 end = boundaries[i + 1]
 
-                eps = 1e-6
+                eps = 1e-8
                 seg_start = start + (eps if i > 0 else 0)
                 seg_end = end - (eps if i < len(boundaries) - 2 else 0)
 
@@ -201,36 +180,18 @@ class PlotCanvas(FigureCanvas):
                     y_vals = eval(expr, {"__builtins__": {}}, local_dict)
 
                 y_vals = np.array(y_vals, dtype=np.float64)
+
                 nan_mask = np.isnan(y_vals) | np.isinf(y_vals)
+
                 y_plot = y_vals.copy()
                 y_plot[nan_mask] = np.nan
 
                 self.axes.plot(x_vals, y_plot, 'r-', linewidth=1.2, zorder=1)
 
-            if self.solution_points:
-                x_points = [point[0] for point in self.solution_points]
-                y_points = [point[1] for point in self.solution_points]
-                self.axes.scatter(
-                    x_points, y_points,
-                    c='yellow', 
-                    edgecolors='red', 
-                    s=100, 
-                    zorder=5, 
-                    label='Решения'
-                )
-                for i, (x, y) in enumerate(self.solution_points):
-                    self.axes.annotate(f'x={x:.4f}', 
-                                     xy=(x, y), 
-                                     xytext=(10, 10),
-                                     textcoords='offset points',
-                                     bbox=dict(boxstyle='round,pad=0.3', facecolor='yellow', alpha=0.7),
-                                     arrowprops=dict(arrowstyle='->', connectionstyle='arc3,rad=0'),
-                                     zorder=6)
-                self.axes.legend()
-
             self.axes.set_title(f'График функции: {function_str}')
             self.current_function = function_str
             self.is_analytical = True
+
             self.axes.set_xlim(current_xlim)
             self.axes.set_ylim(current_ylim)
             self._update_ticks()
@@ -259,29 +220,6 @@ class PlotCanvas(FigureCanvas):
             self.axes.plot(x_vals, y_vals, 'bo-', markersize=4, linewidth=1, zorder=1)
             self.axes.set_title('Табличная функция')
             self.is_analytical = False
-            self.tabular_points = points
-
-            if self.solution_points:
-                x_points = [point[0] for point in self.solution_points]
-                y_points = [point[1] for point in self.solution_points]
-                self.axes.scatter(
-                    x_points, y_points,
-                    c='yellow', 
-                    edgecolors='red', 
-                    s=100, 
-                    zorder=5, 
-                    label='Решения'
-                )
-                for i, (x, y) in enumerate(self.solution_points):
-                    self.axes.annotate(f'x={x:.4f}', 
-                                     xy=(x, y), 
-                                     xytext=(10, 10),
-                                     textcoords='offset points',
-                                     bbox=dict(boxstyle='round,pad=0.3', facecolor='yellow', alpha=0.7),
-                                     arrowprops=dict(arrowstyle='->', connectionstyle='arc3,rad=0'),
-                                     zorder=6)
-                self.axes.legend()
-            
             self._update_ticks()
             self.draw()
 
@@ -295,222 +233,26 @@ class PlotCanvas(FigureCanvas):
         self.axes.set_ylim(self.initial_ylim)
         self._update_ticks()
         self.axes.set_title('График функции')
-        self.solution_points = []
         self.draw()
 
 
-################################################################################
-# ФИНАЛЬНЫЙ ИСПРАВЛЕННЫЙ КЛАСС NonlinearEquationSolver
-################################################################################
-
-class NonlinearEquationSolver:
-    """Класс для решения нелинейных уравнений методом дихотомии с автоматической обработкой асимптот."""
-
-    def __init__(self, function_str: str):
-        self.function_str = function_str
-        self.compiled_function = self._compile_function(function_str)
-
-    def _get_asymptotes_in_range(self, start: float, end: float) -> List[float]:
-        """Возвращает все асимптоты tan(pi*x/4) в [start, end]."""
-        asymptotes = []
-        if end < -1.5:
-            return asymptotes
-        start_adj = max(start, -1.5)
-        k_start = int(math.floor((start_adj - 2) / 4)) - 1
-        k_end = int(math.ceil((end - 2) / 4)) + 1
-        for k in range(k_start, k_end + 1):
-            a = 2 + 4 * k
-            if start_adj <= a <= end:
-                asymptotes.append(a)
-        return sorted(asymptotes)
-
-    def _split_interval_by_asymptotes(self, a: float, b: float) -> List[Tuple[float, float]]:
-        """Разбивает [a, b] на подынтервалы, исключая асимптоты с отступом от всех границ."""
-        asymptotes = self._get_asymptotes_in_range(a, b)
-        points = [a]
-        for asym in asymptotes:
-            if a < asym < b:
-                points.append(asym)
-        points.append(b)
-
-        subintervals = []
-        eps = 1e-6
-        for i in range(len(points) - 1):
-            left = points[i] + eps
-            right = points[i + 1] - eps
-            if left < right and left >= -1.5:
-                subintervals.append((left, right))
-        return subintervals
-
-    def _compile_function(self, function_str: str):
-        expr = function_str.strip()
-        expr = re.sub(r'\bln\s*\(', 'log(', expr)
-        expr = expr.replace('^', '**')
-
-        if "tan(pi*x/4)" in expr and "sqrt(x+1.5)" in expr and "(x-1.3)" in expr:
-            def optimized_f(x):
-                try:
-                    sqrt_part = np.sqrt(x + 1.5)
-                    tan_part = np.tan(np.pi * x / 4)
-                    return (x - 1.3) * sqrt_part + tan_part
-                except:
-                    return np.nan
-            return optimized_f
-
-        expr = re.sub(
-            r'(\([^)]*\)|[a-zA-Z_]\w*|\d+(?:\.\d+)?(?:[eE][+-]?\d+)?|x)\s*\*\*\s*\(?\s*1\s*/\s*3\s*\)?',
-            r'np.cbrt(\1)',
-            expr
-        )
-
-        local_dict = {
-            'np': np,
-            'sin': np.sin,
-            'cos': np.cos,
-            'tan': np.tan,
-            'exp': np.exp,
-            'log': np.log,
-            'log10': np.log10,
-            'sqrt': np.sqrt,
-            'abs': np.abs,
-            'pi': np.pi,
-            'e': np.e,
-            'cbrt': np.cbrt
-        }
-
-        def f(x):
-            local_dict['x'] = x
-            return eval(expr, {"__builtins__": {}}, local_dict)
-
-        return f
-
-    def _evaluate_safe(self, x: float) -> Optional[float]:
-        """Безопасное вычисление f(x) — только проверка на NaN/Inf."""
-        try:
-            val = self.compiled_function(x)
-            if np.isfinite(val):
-                return val
-        except:
-            pass
-        return None
-
-    def bisection_method(self, a: float, b: float, epsilon: float = 1e-4, max_iterations: int = 100):
-        if a >= b:
-            raise ValueError("Левая граница a должна быть меньше правой границы b")
-        if epsilon <= 0:
-            raise ValueError("Точность ε должна быть положительной")
-        if max_iterations <= 0:
-            raise ValueError("Макс. число итераций должно быть положительным")
-
-        subintervals = self._split_interval_by_asymptotes(a, b)
-
-        if not subintervals:
-            raise ValueError("Интервал слишком узкий или вне области определения (x >= -1.5).")
-
-        selected_interval = None
-        fa_final, fb_final = None, None
-
-        for (left, right) in subintervals:
-            f_left = self._evaluate_safe(left)
-            f_right = self._evaluate_safe(right)
-
-            if f_left is None or f_right is None:
-                continue
-
-            if f_left * f_right <= 0:
-                selected_interval = (left, right)
-                fa_final, fb_final = f_left, f_right
-                break
-
-        if selected_interval is None:
-            raise ValueError(
-                "Не удалось найти корректный подынтервал без асимптот и смены знака.\n"
-                "Возможно, исходный интервал содержит только асимптоты или функция не пересекает 0.\n\n"
-                "Рекомендуемые интервалы:\n"
-                "• [0.5, 1.5] — корень ≈ 0.721\n"
-                "• [2.1, 2.9] — корень ≈ 2.502\n"
-                "• [6.1, 6.9] — корень ≈ 6.502\n"
-                "• [10.1, 10.9] — корень ≈ 10.502"
-            )
-
-        a, b = selected_interval
-        fa, fb = fa_final, fb_final
-
-        iterations = []
-        iteration = 0
-
-        while (b - a) > epsilon and iteration < max_iterations:
-            c = (a + b) / 2
-            fc = self._evaluate_safe(c)
-
-            if fc is None:
-                for offset in [0.25, 0.75]:
-                    test_x = a + (b - a) * offset
-                    fc = self._evaluate_safe(test_x)
-                    if fc is not None:
-                        c = test_x
-                        break
-                else:
-                    raise ValueError(f"Не удаётся вычислить функцию на интервале [{a}, {b}]")
-
-            iterations.append({
-                'iteration': iteration + 1,
-                'a': a,
-                'b': b,
-                'c': c,
-                'f(c)': fc,
-                'interval': b - a
-            })
-
-            if abs(fc) < epsilon:
-                a = b = c
-                break
-            elif fa * fc < 0:
-                b = c
-                fb = fc
-            else:
-                a = c
-                fa = fc
-
-            iteration += 1
-
-        root = (a + b) / 2
-        f_root = self._evaluate_safe(root)
-        if f_root is None:
-            f_root = 0.0
-
-        return {
-            'root': root,
-            'f_root': f_root,
-            'iterations': iterations,
-            'total_iterations': iteration,
-            'final_interval': b - a
-        }
-
-
-# --- GUI без изменений ---
 class FunctionPlotter(QMainWindow):
     def __init__(self):
         super().__init__()
         self.tabular_points = []
-        self.current_solution = None
         self.init_ui()
 
     def init_ui(self):
-        self.setWindowTitle('Лабораторные работы №1 и №2 - Построение графиков и решение нелинейных уравнений')
-        self.setGeometry(100, 100, 1400, 800)
+        self.setWindowTitle('Лабораторная работа №1')
+        self.setGeometry(100, 100, 1200, 700)
 
         central_widget = QWidget()
         self.setCentralWidget(central_widget)
-        
         main_layout = QHBoxLayout(central_widget)
-        
-        left_panel = QWidget()
-        left_panel.setFixedWidth(450)
-        left_layout = QVBoxLayout(left_panel)
 
-        lab1_group = QGroupBox("Лабораторная работа 1 - Построение графиков")
-        lab1_layout = QVBoxLayout(lab1_group)
+        control_panel = QWidget()
+        control_panel.setFixedWidth(320)
+        control_layout = QVBoxLayout(control_panel)
 
         type_group = QGroupBox("Тип функции:")
         type_layout = QVBoxLayout(type_group)
@@ -520,30 +262,33 @@ class FunctionPlotter(QMainWindow):
         type_layout.addWidget(self.radio_analytical)
         type_layout.addWidget(self.radio_tabular)
 
-        function_group = QGroupBox("Формула функции:")
+        function_group = QGroupBox("Формула:")
         function_layout = QVBoxLayout(function_group)
         self.txt_function = QLineEdit("(x-1.3)*sqrt(x+1.5)+tan(pi*x/4)")
+        self.txt_function.setPlaceholderText("Например: x^(1/3), 1/x, ln(x), tan(x)")
+        function_layout.addWidget(QLabel("Функция:"))
         function_layout.addWidget(self.txt_function)
 
         self.btn_plot = QPushButton("Построить график")
         self.btn_plot.setStyleSheet("background-color: #4682B4; color: white;")
-        self.btn_load_file = QPushButton("Загрузить файл с данными")
+        self.btn_load_file = QPushButton("Загрузить файл")
         self.btn_load_file.setStyleSheet("background-color: #32CD32; color: white;")
         self.btn_load_file.setEnabled(False)
-        self.btn_reset_view = QPushButton("Сброс вида графика")
-        self.btn_reset_view.setStyleSheet("background-color: #FFA500; color: white;")
+        self.btn_reset = QPushButton("Сброс")
+        self.btn_reset.setStyleSheet("background-color: #FFA500; color: white;")
 
-        scale_group = QGroupBox("Масштабирование:")
+        scale_group = QGroupBox("Масштаб:")
         scale_layout = QVBoxLayout(scale_group)
+        # Расширенный диапазон для поддержки 10^-4
         self.slider_scale = QSlider(Qt.Horizontal)
-        self.slider_scale.setRange(-3000, 3000)
+        self.slider_scale.setRange(-4000, 4000)  # 10^(-4) до 10^4
         self.slider_scale.setValue(0)
         self.slider_scale.valueChanged.connect(self.on_scale_changed)
-        self.label_scale = QLabel("Масштаб: 1.000")
+        self.label_scale = QLabel("Масштаб: 1.0000")
         scale_layout.addWidget(self.label_scale)
         scale_layout.addWidget(self.slider_scale)
 
-        pan_group = QGroupBox("Перемещение по осям:")
+        pan_group = QGroupBox("Перемещение:")
         pan_layout = QVBoxLayout(pan_group)
         self.slider_pan_x = QSlider(Qt.Horizontal)
         self.slider_pan_x.setRange(-50000, 50000)
@@ -553,111 +298,35 @@ class FunctionPlotter(QMainWindow):
         self.slider_pan_y.setRange(-50000, 50000)
         self.slider_pan_y.setValue(0)
         self.slider_pan_y.valueChanged.connect(self.on_pan_y_changed)
-        pan_layout.addWidget(QLabel("Сдвиг по X:"))
+        pan_layout.addWidget(QLabel("По X:"))
         pan_layout.addWidget(self.slider_pan_x)
-        pan_layout.addWidget(QLabel("Сдвиг по Y:"))
+        pan_layout.addWidget(QLabel("По Y:"))
         pan_layout.addWidget(self.slider_pan_y)
 
         self.txt_file_content = QTextEdit()
         self.txt_file_content.setReadOnly(True)
-        self.txt_file_content.setMaximumHeight(120)
+        self.txt_file_content.setMaximumHeight(150)
         self.txt_file_content.setVisible(False)
 
-        lab1_layout.addWidget(type_group)
-        lab1_layout.addWidget(function_group)
-        lab1_layout.addWidget(self.btn_plot)
-        lab1_layout.addWidget(self.btn_load_file)
-        lab1_layout.addWidget(self.btn_reset_view)
-        lab1_layout.addWidget(scale_group)
-        lab1_layout.addWidget(pan_group)
-        lab1_layout.addWidget(QLabel("Содержимое файла:"))
-        lab1_layout.addWidget(self.txt_file_content)
+        control_layout.addWidget(type_group)
+        control_layout.addWidget(function_group)
+        control_layout.addWidget(self.btn_plot)
+        control_layout.addWidget(self.btn_load_file)
+        control_layout.addWidget(self.btn_reset)
+        control_layout.addWidget(scale_group)
+        control_layout.addWidget(pan_group)
+        control_layout.addWidget(QLabel("Содержимое файла:"))
+        control_layout.addWidget(self.txt_file_content)
+        control_layout.addStretch()
 
-        lab2_group = QGroupBox("Лабораторная работа 2 - Решение нелинейных уравнений")
-        lab2_layout = QVBoxLayout(lab2_group)
-
-        params_group = QGroupBox("Параметры решения:")
-        params_layout = QVBoxLayout(params_group)
-        
-        params_layout.addWidget(QLabel("Интервал локализации корня:"))
-        interval_layout = QHBoxLayout()
-        interval_layout.addWidget(QLabel("a ="))
-        self.txt_a = QLineEdit("2")
-        self.txt_a.setMaximumWidth(80)
-        interval_layout.addWidget(self.txt_a)
-        
-        interval_layout.addWidget(QLabel("b ="))
-        self.txt_b = QLineEdit("6")
-        self.txt_b.setMaximumWidth(80)
-        interval_layout.addWidget(self.txt_b)
-        
-        params_layout.addLayout(interval_layout)
-        
-        precision_layout = QHBoxLayout()
-        precision_layout.addWidget(QLabel("Точность ε ="))
-        self.txt_epsilon = QLineEdit("0.0001")
-        self.txt_epsilon.setMaximumWidth(100)
-        precision_layout.addWidget(self.txt_epsilon)
-        
-        precision_layout.addWidget(QLabel("Макс. итераций:"))
-        self.txt_max_iter = QLineEdit("100")
-        self.txt_max_iter.setMaximumWidth(60)
-        precision_layout.addWidget(self.txt_max_iter)
-        params_layout.addLayout(precision_layout)
-
-        self.btn_solve = QPushButton("Решить уравнение методом дихотомии")
-        self.btn_solve.setStyleSheet("background-color: #4682B4; color: white; font-weight: bold;")
-        self.btn_clear_solution = QPushButton("Очистить все решения")
-        self.btn_clear_solution.setStyleSheet("background-color: #FFA500; color: white;")
-
-        results_group = QGroupBox("Результаты решения:")
-        results_layout = QVBoxLayout(results_group)
-        
-        self.lbl_root = QLabel("Найденный корень: ")
-        self.lbl_function_value = QLabel("Значение функции в корне: ")
-        self.lbl_iterations = QLabel("Количество итераций: ")
-        self.lbl_final_interval = QLabel("Конечная длина интервала: ")
-        
-        results_layout.addWidget(self.lbl_root)
-        results_layout.addWidget(self.lbl_function_value)
-        results_layout.addWidget(self.lbl_iterations)
-        results_layout.addWidget(self.lbl_final_interval)
-
-        results_layout.addWidget(QLabel("Процесс решения (итерации):"))
-        self.table_iterations = QTableWidget()
-        self.table_iterations.setColumnCount(6)
-        self.table_iterations.setHorizontalHeaderLabels([
-            "№", "a", "b", "c", "f(c)", "|b-a|"
-        ])
-        self.table_iterations.setMaximumHeight(200)
-        header = self.table_iterations.horizontalHeader()
-        header.setSectionResizeMode(QHeaderView.ResizeToContents)
-        results_layout.addWidget(self.table_iterations)
-
-        lab2_layout.addWidget(params_group)
-        lab2_layout.addWidget(self.btn_solve)
-        lab2_layout.addWidget(self.btn_clear_solution)
-        lab2_layout.addWidget(results_group)
-
-        left_layout.addWidget(lab1_group)
-        left_layout.addWidget(lab2_group)
-        left_layout.addStretch()
-
-        right_panel = QWidget()
-        right_layout = QVBoxLayout(right_panel)
-        self.plot_canvas = PlotCanvas(self, width=8, height=10)
-        right_layout.addWidget(QLabel("График функции и визуализация решения:"))
-        right_layout.addWidget(self.plot_canvas)
-
-        main_layout.addWidget(left_panel)
-        main_layout.addWidget(right_panel)
+        self.plot_canvas = PlotCanvas(self, width=8, height=6)
+        main_layout.addWidget(control_panel)
+        main_layout.addWidget(self.plot_canvas)
 
         self.radio_analytical.toggled.connect(self.on_function_type_changed)
         self.btn_plot.clicked.connect(self.on_plot_clicked)
         self.btn_load_file.clicked.connect(self.on_load_file_clicked)
-        self.btn_reset_view.clicked.connect(self.on_reset_clicked)
-        self.btn_solve.clicked.connect(self.on_solve_clicked)
-        self.btn_clear_solution.clicked.connect(self.on_clear_solution_clicked)
+        self.btn_reset.clicked.connect(self.on_reset_clicked)
 
     def on_function_type_changed(self):
         is_analytical = self.radio_analytical.isChecked()
@@ -668,36 +337,42 @@ class FunctionPlotter(QMainWindow):
     def on_plot_clicked(self):
         try:
             if self.radio_analytical.isChecked():
-                function_str = self.txt_function.text().strip()
-                if not function_str:
-                    raise ValueError("Введите функцию для построения графика")
-                self.plot_canvas.plot_analytical_function(function_str)
+                self.plot_canvas.plot_analytical_function(self.txt_function.text())
             else:
                 if not self.tabular_points:
-                    raise ValueError("Сначала загрузите файл с данными")
+                    raise ValueError("Сначала загрузите файл")
                 self.plot_canvas.plot_tabular_function(self.tabular_points)
         except Exception as e:
-            QMessageBox.critical(self, "Ошибка построения графика", str(e))
+            QMessageBox.critical(self, "Ошибка", str(e))
 
     def on_load_file_clicked(self):
         try:
-            path, _ = QFileDialog.getOpenFileName(self, "Открыть TXT файл с данными", "", "Text files (*.txt)")
+            path, _ = QFileDialog.getOpenFileName(self, "Открыть TXT файл", "", "Text files (*.txt)")
             if path:
                 self.load_tabular_data(path)
         except Exception as e:
-            QMessageBox.critical(self, "Ошибка загрузки файла", str(e))
+            QMessageBox.critical(self, "Ошибка", str(e))
 
     def on_reset_clicked(self):
         self.plot_canvas.reset_view()
         self.slider_pan_x.setValue(0)
         self.slider_pan_y.setValue(0)
         self.slider_scale.setValue(0)
-        self.label_scale.setText("Масштаб: 1.000")
+        self.label_scale.setText("Масштаб: 1.0000")
 
     def on_scale_changed(self, value):
+        # Логарифмическое преобразование
         exponent = value / 1000.0
-        scale = 10 ** exponent
-        self.label_scale.setText(f"Масштаб: {scale:.3g}")
+        scale_raw = 10 ** exponent
+
+        # Квантование масштаба до шага 0.0001
+        step = 0.0001
+        scale = round(scale_raw / step) * step
+
+        # Ограничение диапазона
+        scale = max(0.0001, min(1000.0, scale))
+
+        self.label_scale.setText(f"Масштаб: {scale:.4f}")
         cx, cy, _ = self.plot_canvas.get_view_params()
         self.plot_canvas.set_view(cx, cy, scale)
 
@@ -733,75 +408,10 @@ class FunctionPlotter(QMainWindow):
                         self.tabular_points.append((nums[0], nums[1]))
                         lines_out.append(f"{nums[0]:.6f} {nums[1]:.6f}")
             if not self.tabular_points:
-                raise ValueError("Файл не содержит валидных данных")
+                raise ValueError("Нет валидных данных")
             self.txt_file_content.setText('\n'.join(lines_out))
         except Exception as e:
-            raise ValueError(f"Ошибка чтения файла: {e}")
-
-    def on_solve_clicked(self):
-        try:
-            function_str = self.txt_function.text().strip()
-            if not function_str:
-                raise ValueError("Введите функцию для решения")
-            
-            a = float(self.txt_a.text().replace(',', '.'))
-            b = float(self.txt_b.text().replace(',', '.'))
-            epsilon = float(self.txt_epsilon.text().replace(',', '.'))
-            max_iterations = int(self.txt_max_iter.text())
-            
-            if a >= b:
-                raise ValueError("Левая граница a должна быть меньше правой границы b")
-            if epsilon <= 0:
-                raise ValueError("Точность ε должна быть положительным числом")
-            if max_iterations <= 0:
-                raise ValueError("Максимальное количество итераций должно быть положительным")
-            
-            if not self.plot_canvas.current_function:
-                self.plot_canvas.plot_analytical_function(function_str)
-            
-            solver = NonlinearEquationSolver(function_str)
-            result = solver.bisection_method(a, b, epsilon, max_iterations)
-            
-            self.current_solution = result
-            self.update_solution_results(result)
-            self.plot_canvas.plot_solution_point(result['root'], result['f_root'])
-            
-            QMessageBox.information(self, "Решение найдено", 
-                                  f"Корень уравнения: {result['root']:.8f}\n"
-                                  f"Значение функции: {result['f_root']:.2e}\n"
-                                  f"Количество итераций: {result['total_iterations']}\n"
-                                  f"Конечный интервал: {result['final_interval']:.2e}")
-            
-        except Exception as e:
-            QMessageBox.critical(self, "Ошибка решения уравнения", str(e))
-
-    def on_clear_solution_clicked(self):
-        self.current_solution = None
-        self.plot_canvas.clear_solution_points()
-        self.clear_results_display()
-        QMessageBox.information(self, "Очистка", "Все решения очищены")
-
-    def update_solution_results(self, result):
-        self.lbl_root.setText(f"Найденный корень: {result['root']:.8f}")
-        self.lbl_function_value.setText(f"Значение функции в корне: {result['f_root']:.2e}")
-        self.lbl_iterations.setText(f"Количество итераций: {result['total_iterations']}")
-        self.lbl_final_interval.setText(f"Конечная длина интервала: {result['final_interval']:.2e}")
-        
-        self.table_iterations.setRowCount(len(result['iterations']))
-        for i, iter_data in enumerate(result['iterations']):
-            self.table_iterations.setItem(i, 0, QTableWidgetItem(str(iter_data['iteration'])))
-            self.table_iterations.setItem(i, 1, QTableWidgetItem(f"{iter_data['a']:.6f}"))
-            self.table_iterations.setItem(i, 2, QTableWidgetItem(f"{iter_data['b']:.6f}"))
-            self.table_iterations.setItem(i, 3, QTableWidgetItem(f"{iter_data['c']:.6f}"))
-            self.table_iterations.setItem(i, 4, QTableWidgetItem(f"{iter_data['f(c)']:.2e}"))
-            self.table_iterations.setItem(i, 5, QTableWidgetItem(f"{iter_data['interval']:.2e}"))
-
-    def clear_results_display(self):
-        self.lbl_root.setText("Найденный корень: ")
-        self.lbl_function_value.setText("Значение функции в корне: ")
-        self.lbl_iterations.setText("Количество итераций: ")
-        self.lbl_final_interval.setText("Конечная длина интервала: ")
-        self.table_iterations.setRowCount(0)
+            raise ValueError(f"Ошибка файла: {e}")
 
 
 def main():
