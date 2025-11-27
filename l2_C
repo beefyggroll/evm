@@ -1,59 +1,221 @@
-using System;
-using System.IO;
-using System.IO.Pipes;
-using System.Runtime.InteropServices;
-using System.Runtime.CompilerServices;
-using System.Threading.Tasks;
-using System.Linq.Expressions;
+import tkinter as tk
+from tkinter import ttk, messagebox
 
-public struct Message
-{
-    public int Num1 { get; set; }
-    public int Num2 { get; set; }
-}
+class GaussInverseCalculator:
+    def __init__(self, root):
+        self.root = root
+        self.root.title("Решение СЛАУ: Метод Гаусса (обратная матрица)")
+        self.root.geometry("1650x700")
 
-class PipeClient
-{
-    static async Task Main()
-    {
-        using (var Client = new NamedPipeClientStream(".", "testpipe", PipeDirection.InOut))
-        {
-            Message message = new Message();
-            try{
-            while (true)
-            {
-                if (!Client.IsConnected)
-                {
-                    Console.WriteLine("Клиент подключается...");
-                    Client.Connect();
+        main_frame = ttk.Frame(root, padding="5")
+        main_frame.grid(row=0, column=0, sticky=(tk.W, tk.E, tk.N, tk.S))
 
-                }
+        title_label = ttk.Label(main_frame, text="РЕШЕНИЕ СИСТЕМ ЛИНЕЙНЫХ АЛГЕБРАИЧЕСКИХ УРАВНЕНИЙ", font=("Arial", 14, "bold"))
+        title_label.grid(row=0, column=0, columnspan=3, pady=5)
 
-                byte[] byt = new byte[Unsafe.SizeOf<Message>()];
-                
-                if (!Client.IsConnected)
-                {
-                    Console.WriteLine("Сервер отключился");
-                    break;
-                }
-                await Client.ReadAsync(byt);
+        subtitle_label = ttk.Label(main_frame, text="Задание: Найти обратную матрицу методом Гаусса с постолбцовым выбором ведущего элемента", font=("Arial", 11))
+        subtitle_label.grid(row=1, column=0, columnspan=3, pady=3)
 
-                message = MemoryMarshal.Read<Message>(byt);
-                Console.WriteLine("{0}, {1}", message.Num1, message.Num2);
-                MemoryMarshal.Write(byt, ref message);
-                
-                if (!Client.IsConnected)
-                {
-                    Console.WriteLine("Сервер отключился");
-                    break;
-                }
-                
-                await Client.WriteAsync(byt);
-                Console.WriteLine("Entering number to clienttt");
-            }
-            Console.WriteLine("Клиент отключился");
-         }catch{};
-        }
+        matrix_frame = ttk.LabelFrame(main_frame, text="Матрица A (4×4)", padding="5")
+        matrix_frame.grid(row=2, column=0, columnspan=3, pady=5, sticky=(tk.W, tk.E))
+
+        self.entries = []
+        for i in range(4):
+            row_entries = []
+            for j in range(4):
+                entry = ttk.Entry(matrix_frame, width=10)
+                entry.grid(row=i, column=j, padx=1, pady=1)
+                row_entries.append(entry)
+            self.entries.append(row_entries)
+
+        self.set_default_values()
+
+        calc_button = ttk.Button(main_frame, text="Вычислить обратную матрицу", command=self.calculate_inverse)
+        calc_button.grid(row=3, column=0, columnspan=3, pady=8)
+
+        result_frame = ttk.LabelFrame(main_frame, text="Результаты", padding="5")
+        result_frame.grid(row=4, column=0, columnspan=3, pady=5, sticky=(tk.W, tk.E, tk.N, tk.S))
+
+        self.steps_text = tk.Text(result_frame, height=20, width=110, font=("Consolas", 9))
+        self.steps_text.grid(row=0, column=0, padx=3, pady=3, sticky=(tk.W, tk.E, tk.N, tk.S))
+
+        self.inverse_text = tk.Text(result_frame, height=20, width=55, font=("Consolas", 9))
+        self.inverse_text.grid(row=0, column=1, padx=3, pady=3, sticky=(tk.W, tk.E, tk.N, tk.S))
+
+        self.check_text = tk.Text(result_frame, height=20, width=55, font=("Consolas", 9))
+        self.check_text.grid(row=0, column=2, padx=3, pady=3, sticky=(tk.W, tk.E, tk.N, tk.S))
+
+        ttk.Label(result_frame, text="Шаги вычислений").grid(row=1, column=0, sticky=tk.W)
+        ttk.Label(result_frame, text="Обратная матрица A⁻¹").grid(row=1, column=1, sticky=tk.W)
+        ttk.Label(result_frame, text="Проверка: A·A⁻¹ = I?").grid(row=1, column=2, sticky=tk.W)
+
+        result_frame.columnconfigure(0, weight=1, minsize=500)
+        result_frame.columnconfigure(1, weight=1, minsize=450)
+        result_frame.columnconfigure(2, weight=1, minsize=450)
+        result_frame.rowconfigure(0, weight=1)
+
+        main_frame.columnconfigure(0, weight=1)
+        main_frame.rowconfigure(4, weight=1)
+
+    def set_default_values(self):
+        default_matrix = [
+            [46.89,  -5.27,   1.44,   9.32],
+            [-1.22, -38.55,  -4.71,  -3.18],
+            [ 4.39,  -0.67,  31.25,   2.02],
+            [ 0.74,   3.91,   0.58, -37.46]
+        ]
+        for i in range(4):
+            for j in range(4):
+                self.entries[i][j].insert(0, str(default_matrix[i][j]))
+
+    def identity_matrix(self, n):
+        return [[1.0 if i == j else 0.0 for j in range(n)] for i in range(n)]
+
+    def round_matrix(self, mat, decimals):
+        return [[round(x, decimals) for x in row] for row in mat]
+
+    def matrix_multiply(self, A, B):
+        n = len(A)
+        m = len(B[0])
+        p = len(B)
+        C = [[0.0 for _ in range(m)] for _ in range(n)]
+        for i in range(n):
+            for j in range(m):
+                s = 0.0
+                for k in range(p):
+                    s += A[i][k] * B[k][j]
+                C[i][j] = s
+        return C
+
+    def format_matrix(self, mat, decimals=4):  
+        n = len(mat)
+        m = len(mat[0])
+        cell_width = 12  
+
+        top = "┌" + ("─" * cell_width + "┬") * (m - 1) + "─" * cell_width + "┐"
+        mid = "├" + ("─" * cell_width + "┼") * (m - 1) + "─" * cell_width + "┤"
+        bot = "└" + ("─" * cell_width + "┴") * (m - 1) + "─" * cell_width + "┘"
+
+        lines = [top]
+        for i in range(n):
+            row = "│" + "".join(f"{mat[i][j]:{cell_width}.{decimals}f}" for j in range(m)) + "│"
+            lines.append(row)
+            if i < n - 1:
+                lines.append(mid)
+        lines.append(bot)
+        return "\n".join(lines)
+
+    def format_augmented_matrix(self, aug, n, decimals=4):  
+        cell_width = 12
+        total = len(aug[0])
         
-    }
-}
+        top = "┌" + ("─" * cell_width) * n + "┬" + ("─" * cell_width) * n + "┐"
+        mid = "├" + ("─" * cell_width) * n + "┼" + ("─" * cell_width) * n + "┤"
+        bot = "└" + ("─" * cell_width) * n + "┴" + ("─" * cell_width) * n + "┘"
+
+        lines = [top]
+        for i in range(len(aug)):
+            left = "".join(f"{aug[i][j]:{cell_width}.{decimals}f}" for j in range(n))
+            right = "".join(f"{aug[i][j]:{cell_width}.{decimals}f}" for j in range(n, total))
+            lines.append("│" + left + "│" + right + "│")
+            if i < len(aug) - 1:
+                lines.append(mid)
+        lines.append(bot)
+        return "\n".join(lines)
+
+    def gauss_jordan_inverse_with_steps(self, A):
+        n = len(A)
+        aug = [row[:] + [1.0 if i == j else 0.0 for j in range(n)] for i, row in enumerate(A)]
+        log = []
+
+        log.append("Начальная расширенная матрица [A | I]:\n")
+        log.append(self.format_augmented_matrix(aug, n, 4))  
+
+        for col in range(n):
+            log.append(f"\nШаг {col + 1} (столбец {col + 1})\n")
+
+            max_row = col
+            for i in range(col + 1, n):
+                if abs(aug[i][col]) > abs(aug[max_row][col]):
+                    max_row = i
+
+            if max_row != col:
+                aug[col], aug[max_row] = aug[max_row], aug[col]
+                log.append(f"Перестановка строк {col + 1} и {max_row + 1}\n")
+            else:
+                log.append(f"Ведущий элемент уже в строке {col + 1}\n")
+
+            log.append("После перестановки:\n")
+            log.append(self.format_augmented_matrix(aug, n, 4) + "\n")  
+
+            if abs(aug[col][col]) < 1e-12:
+                raise ValueError("Матрица вырожденная")
+
+            pivot = aug[col][col]
+            for j in range(2 * n):
+                aug[col][j] /= pivot
+
+            log.append(f"Нормировка строки {col + 1} (ведущий = 1):\n")
+            log.append(self.format_augmented_matrix(aug, n, 4) + "\n")  
+
+            for i in range(n):
+                if i != col:
+                    factor = aug[i][col]
+                    if abs(factor) > 1e-14:
+                        for j in range(2 * n):
+                            aug[i][j] -= factor * aug[col][j]
+                        log.append(f"Обнуление [{i+1},{col+1}] с коэффициентом {factor:.4f}\n")  
+
+            log.append(f"После обнуления столбца {col + 1}:\n")
+            log.append(self.format_augmented_matrix(aug, n, 4) + "\n") 
+
+        inverse = [row[n:] for row in aug]
+        return inverse, "".join(log)
+
+    def calculate_inverse(self):
+        try:
+            A = []
+            for i in range(4):
+                row = []
+                for j in range(4):
+                    val = self.entries[i][j].get().strip()
+                    if not val:
+                        raise ValueError(f"Поле [{i+1},{j+1}] пустое!")
+                    row.append(float(val))
+                A.append(row)
+
+            A_inv, steps_log = self.gauss_jordan_inverse_with_steps(A)
+
+            I_check = self.matrix_multiply(A, A_inv)
+            I_ideal = self.identity_matrix(4)
+            A_inv_r = self.round_matrix(A_inv, 4)
+            I_check_r = self.round_matrix(I_check, 4)
+
+            self.steps_text.delete(1.0, tk.END)
+            self.steps_text.insert(tk.END, steps_log)
+
+            self.inverse_text.delete(1.0, tk.END)
+            self.inverse_text.insert(tk.END, "Обратная матрица A⁻¹:\n")
+            self.inverse_text.insert(tk.END, self.format_matrix(A_inv_r, 4))
+
+            self.check_text.delete(1.0, tk.END)
+            self.check_text.insert(tk.END, "Проверка: A × A⁻¹\n")
+            self.check_text.insert(tk.END, self.format_matrix(I_check_r, 4))
+
+            max_diff = max(
+                abs(I_check[i][j] - I_ideal[i][j])
+                for i in range(4) for j in range(4)
+            )
+            self.check_text.insert(tk.END, f"\n\nМакс. отклонение от I: {max_diff:.20f}")
+            if max_diff < 1e-4:  
+                self.check_text.insert(tk.END, "\nТочность достаточна (≤ 10⁻⁴)")
+            else:
+                self.check_text.insert(tk.END, "\nОтклонение > 10⁻⁴.")
+
+        except Exception as e:
+            messagebox.showerror("Ошибка", str(e))
+
+if __name__ == "__main__":
+    root = tk.Tk()
+    app = GaussInverseCalculator(root)
+    root.mainloop()
