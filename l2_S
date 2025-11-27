@@ -1,158 +1,188 @@
-using System;
-using System.IO;
-using System.IO.Pipes;
-using System.Runtime.CompilerServices;
-using System.Runtime.InteropServices;
-using System.Text;
-using System.Threading.Tasks;
-using System.Xml.Linq;
-using System.Threading;
-using static PipeServer;
-using System.Text.RegularExpressions;
-using System.Collections.Generic;
-using System.Collections;
+import tkinter as tk
+from tkinter import ttk
 
-public struct People
-{
-    public People(int n, int s)
-    {
-        Name = n;
-        Surename = s;
-    }
+# --- Математические вспомогательные функции (без встроенных) ---
+def abs_val(x):
+    return x if x >= 0 else -x
 
-    public int Name { get; }
-    public int Surename { get; }
-}
-class PipeServer
-{
+def max_list(lst):
+    if not lst:
+        return 0
+    m = lst[0]
+    for i in range(1, len(lst)):
+        if lst[i] > m:
+            m = lst[i]
+    return m
 
-    private static PriorityQueue<People, int> peopleQueue = new();
-    private static Queue<People> queue = new Queue<People>();
-    private static Mutex mut = new Mutex();
-   
-    public static void writefile()
-    {
+def subtract_lists(a, b):
+    return [a[i] - b[i] for i in range(len(a))]
 
-        try
-        {
-            StreamWriter sw = new StreamWriter("U:\\Test1.txt", true, Encoding.ASCII);
+def jacobi_method(A, b, epsilon=1e-4, max_iter=1000):
+    n = len(b)
+    x = [0.0] * n
+    x_new = [0.0] * n
 
-            foreach (People num in queue)
-            {
-                sw.Write("Numbers: {0} and {1}\n", num.Name, num.Surename);
-            }
-            sw.Close();
-            queue.Clear();
-        }
-        catch (Exception e)
-        {
-            Console.WriteLine("Problem: " + e.Message);
-        }
-        finally
-        {
-            Console.WriteLine("Write too file.");
-        }
-    }
-    public static Task Inter(CancellationTokenSource source)
-    {
-        return Task.Run(() =>
-        {
-            while (!source.IsCancellationRequested)
-            {
-                string? input = Console.ReadLine();
-                if (input != null)
-                {
-                    string[] parts = input.Split(' ');
-                    if ((int.TryParse(parts[0], out int firstnum)) && (int.TryParse(parts[1], out int secondnum)) && (int.TryParse(parts[2], out int priora)))
-                    {
-                        People message = new People(firstnum, secondnum);
-                        Console.WriteLine("About to send to client {0} and {1} and {2}.", message.Name, message.Surename, priora);
-                        mut.WaitOne();
-                        peopleQueue.Enqueue(message, priora);
-                        mut.ReleaseMutex();
-                    }
-                    else
-                    {
-                        Console.WriteLine("Wrong message");
-                    }
-                }
-            }
-            Console.WriteLine("Stop 1");
+    for iteration in range(max_iter):
+        for i in range(n):
+            s = 0.0
+            for j in range(n):
+                if i != j:
+                    s += A[i][j] * x[j]
+            x_new[i] = (b[i] - s) / A[i][i]
 
-        });
-    }
-    public static Task Write(NamedPipeServerStream namedPipeServer, CancellationTokenSource source)
-    {
-        return Task.Run(async () =>
-        {
-            while (!source.IsCancellationRequested)
-            {
-                if (peopleQueue.Count > 0)
-                {
-                    byte[] messageBufferr = new byte[Unsafe.SizeOf<People>()];
-                    byte[] messageBuffer = new byte[Unsafe.SizeOf<People>()];
-                    if (!namedPipeServer.IsConnected)
-                    {
-                        continue;
-                    }
-                    mut.WaitOne();
-                    if (peopleQueue.TryDequeue(out People element, out int priority) == true)
-                    {
-                        MemoryMarshal.Write(messageBufferr, ref element);
-                        mut.ReleaseMutex();
-                        try
-                        {
-                            await namedPipeServer.WriteAsync(messageBufferr);
-                            await namedPipeServer.ReadAsync(messageBuffer, 0, messageBuffer.Length);
-                        }
-                        catch (TaskCanceledException)
-                        {
-                            break;
-                        }
-                        People receivedWork = MemoryMarshal.Read<People>(messageBuffer);
-                        Console.WriteLine("Received from client: {0} and {1}.", receivedWork.Name, receivedWork.Surename);
-                        queue.Enqueue(receivedWork);
+        diff = subtract_lists(x_new, x)
+        max_diff = max_list([abs_val(d) for d in diff])
 
-                        
-                    }
-                    else
-                    {
-                        continue;
-                    }
-                   
+        if max_diff < epsilon:
+            return x_new, iteration + 1
 
-                }
-                else
-                {
-                    continue;
-                }
-            }
-            Console.WriteLine("Stop 2");
-        });
-    }
-    static async Task Main()
-    {
+        x = x_new[:]
 
-        using (NamedPipeServerStream namedPipeServer = new NamedPipeServerStream("test-pipe", PipeDirection.InOut, 1, PipeTransmissionMode.Message))
-        {
+    return x_new, max_iter
 
-            byte[] messageBuffer = new byte[Unsafe.SizeOf<People>()];
-            Console.WriteLine("Server waiting for a connection...");//Ожидание соединения
-            namedPipeServer.WaitForConnection();
-            Console.Write("A client has connected. ");
-            Console.Write("Write 2 numbers separated by a space. If you gonna exit ctrl+C: ");
-            CancellationTokenSource source = new CancellationTokenSource();
-            Console.CancelKeyPress += (sender, e) =>
-            {
-                e.Cancel = true; // Предотвращаем завершение программы
-                source.Cancel(); // Устанавливаем флаг запроса на выход
-            };
-            Task t1 = Inter(source);
-            Task t2 = Write(namedPipeServer, source);
-            await Task.WhenAll(t1, t2);
-            writefile();
-            await namedPipeServer.DisposeAsync();
-            Console.ReadKey(true);
-        }
-    }
-}
+# --- Основной GUI ---
+class JacobiApp:
+    def __init__(self, root):
+        self.root = root
+        self.root.title("Метод Якоби — Решение СЛАУ")
+        self.n = 4
+
+        # Значения по умолчанию (ваш вариант)
+        self.default_A = [
+            [46.89, -5.27, 1.44, 9.32],
+            [-1.22, -38.55, -4.71, -3.18],
+            [4.39, -0.67, 31.25, 2.02],
+            [0.74, 3.91, 0.58, -37.46]
+        ]
+        self.default_b = [7.16, -4.53, 1.87, 9.04]
+
+        self.entries_A = []
+        self.entries_b = []
+
+        self.create_widgets()
+        self.load_defaults()
+
+    def create_widgets(self):
+        # Заголовок
+        title = tk.Label(self.root, text="Введите коэффициенты системы Ax = b", font=("Arial", 12, "bold"))
+        title.grid(row=0, column=0, columnspan=6, pady=10)
+
+        # Метки столбцов
+        for j in range(self.n):
+            lbl = tk.Label(self.root, text=f"x{j+1}", width=8)
+            lbl.grid(row=1, column=j+1, padx=5)
+
+        lbl_b = tk.Label(self.root, text="= b", width=8)
+        lbl_b.grid(row=1, column=self.n+1, padx=5)
+
+        # Поля ввода для матрицы A и вектора b
+        for i in range(self.n):
+            row_entries = []
+            # Метка строки
+            lbl_row = tk.Label(self.root, text=f"Ур.{i+1}")
+            lbl_row.grid(row=i+2, column=0, padx=5)
+            # Поля A[i][j]
+            for j in range(self.n):
+                entry = tk.Entry(self.root, width=10, justify='right')
+                entry.grid(row=i+2, column=j+1, padx=3, pady=3)
+                row_entries.append(entry)
+            self.entries_A.append(row_entries)
+            # Поле b[i]
+            entry_b = tk.Entry(self.root, width=10, justify='right')
+            entry_b.grid(row=i+2, column=self.n+1, padx=3, pady=3)
+            self.entries_b.append(entry_b)
+
+        # Кнопки
+        btn_frame = tk.Frame(self.root)
+        btn_frame.grid(row=self.n+2, column=0, columnspan=self.n+2, pady=10)
+
+        btn_solve = tk.Button(btn_frame, text="Решить", command=self.solve, width=12)
+        btn_solve.pack(side='left', padx=5)
+
+        btn_default = tk.Button(btn_frame, text="По умолчанию", command=self.load_defaults, width=12)
+        btn_default.pack(side='left', padx=5)
+
+        btn_clear = tk.Button(btn_frame, text="Очистить", command=self.clear_all, width=12)
+        btn_clear.pack(side='left', padx=5)
+
+        # Текстовое поле для вывода
+        self.output = tk.Text(self.root, width=70, height=12, font=("Courier", 10))
+        self.output.grid(row=self.n+3, column=0, columnspan=self.n+2, padx=10, pady=10)
+
+    def load_defaults(self):
+        self.clear_all()
+        for i in range(self.n):
+            for j in range(self.n):
+                self.entries_A[i][j].insert(0, str(self.default_A[i][j]))
+            self.entries_b[i].insert(0, str(self.default_b[i]))
+
+    def clear_all(self):
+        for i in range(self.n):
+            for j in range(self.n):
+                self.entries_A[i][j].delete(0, tk.END)
+            self.entries_b[i].delete(0, tk.END)
+        self.output.delete(1.0, tk.END)
+
+    def get_matrix_and_vector(self):
+        A = []
+        b = []
+        try:
+            for i in range(self.n):
+                row = []
+                for j in range(self.n):
+                    val = float(self.entries_A[i][j].get())
+                    row.append(val)
+                A.append(row)
+                b_val = float(self.entries_b[i].get())
+                b.append(b_val)
+            return A, b
+        except ValueError:
+            raise ValueError("Пожалуйста, введите корректные числа во все поля.")
+
+    def solve(self):
+        try:
+            A, b = self.get_matrix_and_vector()
+        except ValueError as e:
+            self.output.delete(1.0, tk.END)
+            self.output.insert(tk.END, f"Ошибка: {e}\n")
+            return
+
+        # Проверка диагонального преобладания (не обязательно, но полезно)
+        for i in range(self.n):
+            diag = abs_val(A[i][i])
+            off_sum = 0.0
+            for j in range(self.n):
+                if i != j:
+                    off_sum += abs_val(A[i][j])
+            if diag <= off_sum:
+                self.output.insert(tk.END, f"Предупреждение: в уравнении {i+1} нет диагонального преобладания. Сходимость не гарантирована.\n")
+
+        try:
+            solution, iters = jacobi_method(A, b, epsilon=1e-4)
+        except ZeroDivisionError:
+            self.output.delete(1.0, tk.END)
+            self.output.insert(tk.END, "Ошибка: деление на ноль (нулевой диагональный элемент).\n")
+            return
+
+        # Вывод результата
+        self.output.delete(1.0, tk.END)
+        self.output.insert(tk.END, f"Сходимость достигнута за {iters} итераций.\n\n")
+        self.output.insert(tk.END, "Решение системы:\n")
+        for i, val in enumerate(solution):
+            self.output.insert(tk.END, f"x{i+1} = {val:.6f}\n")
+
+        self.output.insert(tk.END, "\nПроверка подстановкой:\n")
+        for i in range(self.n):
+            lhs = 0.0
+            for j in range(self.n):
+                lhs += A[i][j] * solution[j]
+            rhs = b[i]
+            diff = abs_val(lhs - rhs)
+            self.output.insert(tk.END, f"Ур.{i+1}: LHS = {lhs:.6f}, RHS = {rhs:.6f}, |разн| = {diff:.6e}\n")
+
+
+# --- Запуск приложения ---
+if __name__ == "__main__":
+    root = tk.Tk()
+    app = JacobiApp(root)
+    root.mainloop()
