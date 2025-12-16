@@ -1,54 +1,523 @@
-int ledpin_red=D0;
-int ledpin_yellow=D1;
-int ledpin_green=D2;
-int inpButton =D3;
-int flag=0;
-int check=1;
-void setup()
-{
-  pinMode(ledpin_red,OUTPUT);
-  pinMode(ledpin_yellow,OUTPUT);
-  pinMode(ledpin_green,OUTPUT);
-  pinMode(inpButton, INPUT);
-}
+import tkinter as tk
+from tkinter import ttk, messagebox
 
-void loop()
-{
-  if(flag==0)
-  {
-    if (check==1)
-    {
-      digitalWrite(ledpin_red, HIGH);
-      flag=1;
-    }
-    else
-    {
-      digitalWrite(ledpin_red, LOW);
-    }
-    if(check==2)
-    {
-      flag=1;
-      digitalWrite(ledpin_yellow, HIGH);
-    } 
-    else
-  {
-    digitalWrite(ledpin_yellow, LOW);
-  }
-    if(check==3)
-  {
-    digitalWrite(ledpin_green, HIGH);
-    flag=1;
-    check=0;
-  }
-    else
-  {
-    digitalWrite(ledpin_green, LOW);
-  }
+class ChessMatePatAnalyzer:
+    def __init__(self, root):
+        self.root = root
+        self.root.title("Мат и Пат")
+        self.root.geometry("1200x900")
+        self.black_king_pos = None
+        self.white_king_pos = None
+        self.combinations = []
+        self.current_combination = 0
+        self.piece_symbols = {
+            'Q': '♕',  
+            'R': '♖',  
+            'B': '♗',  
+            'N': '♘', 
+            'K': '♔',  
+            'P': '♙'   
+        }
+        
+        self.piece_names = {
+            'Q': "Ферзь",
+            'R': "Ладья", 
+            'B': "Слон",
+            'N': "Конь",
+            'K': "Король",
+            'P': "Пешка"
+        }
+        
+        # Обратное отображение: русское название → код
+        self.name_to_code = {v: k for k, v in self.piece_names.items()}
+        self.russian_names = list(self.piece_names.values())
+        
+        self.setup_ui()
+    
+    def setup_ui(self):
+        main_frame = ttk.Frame(self.root, padding="10")
+        main_frame.grid(row=0, column=0, sticky=(tk.W, tk.E, tk.N, tk.S))
+        
+        self.root.columnconfigure(0, weight=1)
+        self.root.rowconfigure(0, weight=1)
+        main_frame.columnconfigure(0, weight=1)  # Левая панель — управление
+        main_frame.columnconfigure(1, weight=1)  # Правая панель — доска
+        main_frame.rowconfigure(2, weight=1)
+        
+        title_label = ttk.Label(main_frame, text="Мат и Пат", 
+                               font=("Arial", 16, "bold"))
+        title_label.grid(row=0, column=0, columnspan=2, pady=(0, 20))
+ 
+        content_frame = ttk.Frame(main_frame)
+        content_frame.grid(row=2, column=0, columnspan=2, sticky=(tk.W, tk.E, tk.N, tk.S), pady=10)
+        content_frame.columnconfigure(0, weight=1)  # Управление
+        content_frame.columnconfigure(1, weight=1)  # Доска
+        content_frame.rowconfigure(0, weight=1)
+        
+        # ========== ЛЕВАЯ ПАНЕЛЬ: УПРАВЛЕНИЕ ==========
+        left_frame = ttk.Frame(content_frame)
+        left_frame.grid(row=0, column=0, sticky=(tk.W, tk.E, tk.N, tk.S), padx=(0, 10))
+        left_frame.columnconfigure(0, weight=1)
+        left_frame.rowconfigure(3, weight=1)  # Для текстового поля шагов
 
-  }
-  if(digitalRead(inpButton) == LOW && flag==1)
-  {
-    check=check+1;
-    flag=0;
-  }
-}
+        # Выбор фигур
+        fig_selection_frame = ttk.LabelFrame(left_frame, text="Выбор фигур", padding="10")
+        fig_selection_frame.grid(row=0, column=0, sticky=(tk.W, tk.E), pady=(0, 10))
+
+        ttk.Label(fig_selection_frame, text="Фигура 1:").grid(row=0, column=0, padx=(0, 5), sticky=tk.W)
+        self.fig1_var = tk.StringVar(value="Ферзь")
+        fig1_combo = ttk.Combobox(fig_selection_frame, textvariable=self.fig1_var, 
+                                  values=self.russian_names, width=12, state="readonly")
+        fig1_combo.grid(row=0, column=1, padx=5, pady=2, sticky=tk.W)
+
+        ttk.Label(fig_selection_frame, text="Фигура 2:").grid(row=1, column=0, padx=(0, 5), sticky=tk.W, pady=(5, 0))
+        self.fig2_var = tk.StringVar(value="Ладья")
+        fig2_combo = ttk.Combobox(fig_selection_frame, textvariable=self.fig2_var, 
+                                  values=self.russian_names, width=12, state="readonly")
+        fig2_combo.grid(row=1, column=1, padx=5, pady=(5, 0), sticky=tk.W)
+
+        # Кнопки управления
+        control_frame = ttk.LabelFrame(left_frame, text="Управление", padding="10")
+        control_frame.grid(row=1, column=0, sticky=(tk.W, tk.E), pady=(0, 10))
+
+        self.stats_label = ttk.Label(control_frame, text="Выберите чёрного короля")
+        self.stats_label.grid(row=0, column=0, columnspan=6, sticky=tk.W, pady=(0, 10))
+        
+        button_frame = ttk.Frame(control_frame)
+        button_frame.grid(row=1, column=0, columnspan=6, pady=5)
+        
+        self.find_btn = ttk.Button(button_frame, text="Найти комбинации", 
+                                  command=self.find_combinations)
+        self.find_btn.grid(row=0, column=0, padx=2)
+        
+        self.prev_btn = ttk.Button(button_frame, text="← Предыдущая", 
+                                  command=self.previous_combination, state="disabled")
+        self.prev_btn.grid(row=0, column=1, padx=2)
+        
+        self.next_btn = ttk.Button(button_frame, text="Следующая →", 
+                                  command=self.next_combination, state="disabled")
+        self.next_btn.grid(row=0, column=2, padx=2)
+        
+        ttk.Label(button_frame, text="Перейти к:").grid(row=0, column=3, padx=(10, 2))
+        self.combination_var = tk.StringVar()
+        self.combination_entry = ttk.Entry(button_frame, textvariable=self.combination_var, width=5)
+        self.combination_entry.grid(row=0, column=4, padx=2)
+        
+        self.goto_btn = ttk.Button(button_frame, text="Перейти", 
+                                  command=self.goto_combination, state="disabled")
+        self.goto_btn.grid(row=0, column=5, padx=2)
+
+        # Текущая комбинация
+        self.combination_frame = ttk.LabelFrame(left_frame, text="Текущая комбинация", padding="10")
+        self.combination_frame.grid(row=2, column=0, sticky=(tk.W, tk.E), pady=(0, 10))
+        self.combination_label = ttk.Label(self.combination_frame, text="Комбинация не выбрана", 
+                                         font=("Arial", 10), justify=tk.LEFT)
+        self.combination_label.grid(row=0, column=0, sticky=tk.W)
+
+        # Последовательность ходов
+        self.steps_frame = ttk.LabelFrame(left_frame, text="Последовательность ходов", padding="10")
+        self.steps_frame.grid(row=3, column=0, sticky=(tk.W, tk.E, tk.N, tk.S), pady=(0, 10))
+        self.steps_text = tk.Text(self.steps_frame, height=15, width=50, font=("Arial", 9), wrap=tk.WORD)
+        scrollbar = ttk.Scrollbar(self.steps_frame, orient="vertical", command=self.steps_text.yview)
+        self.steps_text.configure(yscrollcommand=scrollbar.set)
+        self.steps_text.grid(row=0, column=0, sticky=(tk.W, tk.E, tk.N, tk.S))
+        scrollbar.grid(row=0, column=1, sticky=(tk.N, tk.S))
+
+        # ========== ПРАВАЯ ПАНЕЛЬ: ДОСКА ==========
+        right_frame = ttk.Frame(content_frame)
+        right_frame.grid(row=0, column=1, sticky=(tk.W, tk.E, tk.N, tk.S))
+
+        board_frame = ttk.LabelFrame(right_frame, text="Шахматная доска", padding="10")
+        board_frame.grid(row=0, column=0, sticky=(tk.W, tk.E, tk.N, tk.S))
+        self.create_chess_board(board_frame)
+        
+        info_frame = ttk.LabelFrame(right_frame, text="Информация о позиции", padding="10")
+        info_frame.grid(row=1, column=0, sticky=(tk.W, tk.E), pady=(10, 0))
+        self.position_label = ttk.Label(info_frame, text="Позиция не выбрана", font=("Arial", 10))
+        self.position_label.grid(row=0, column=0, sticky=tk.W)
+
+        right_frame.columnconfigure(0, weight=1)
+        right_frame.rowconfigure(0, weight=1)
+
+        # Статусная строка
+        self.status_var = tk.StringVar(value="Готов")
+        status_bar = ttk.Label(main_frame, textvariable=self.status_var, relief=tk.SUNKEN)
+        status_bar.grid(row=3, column=0, columnspan=2, sticky=(tk.W, tk.E), pady=(10, 0))
+    
+    def create_chess_board(self, parent):
+        self.board_buttons = []
+        self.squares = {}
+        files = "abcdefgh"
+        ranks = "87654321"
+        
+        for col, file in enumerate(files):
+            label = ttk.Label(parent, text=file, width=2, anchor="center", font=("Arial", 10, "bold"))
+            label.grid(row=8, column=col+1, pady=2)
+        
+        for row, rank in enumerate(ranks):
+            label = ttk.Label(parent, text=rank, width=2, anchor="center", font=("Arial", 10, "bold"))
+            label.grid(row=row, column=0, padx=2)
+        
+        for row in range(8):
+            button_row = []
+            for col in range(8):
+                square_name = files[col] + ranks[row]
+                color = "#F0D9B5" if (row + col) % 2 == 0 else "#B58863"
+                btn = tk.Button(parent, text="", width=4, height=2, 
+                               bg=color, relief="raised", font=("Arial", 14),
+                               command=lambda sq=square_name: self.select_square(sq))
+                btn.grid(row=row, column=col+1, padx=1, pady=1)
+                self.squares[square_name] = btn
+                button_row.append(btn)
+            self.board_buttons.append(button_row)
+    
+    def select_square(self, square):
+        if self.black_king_pos is None:
+            self.select_black_king(square)
+        elif self.white_king_pos is None:
+            self.select_white_king(square)
+        else:
+            self.reset_selections()
+            self.select_black_king(square)
+    
+    def select_black_king(self, square):
+        for sq_name, btn in self.squares.items():
+            color = "#F0D9B5" if (self.get_square_coords(sq_name)[0] + self.get_square_coords(sq_name)[1]) % 2 == 0 else "#B58863"
+            btn.config(bg=color, text="")
+        self.squares[square].config(bg="#2C3E50", text="♔", fg="white")
+        self.black_king_pos = square
+        self.white_king_pos = None
+        self.position_label.config(text=f"Чёрный король: {square}")
+        self.stats_label.config(text=f"Чёрный король на {square}. Выберите белого короля.")
+        self.status_var.set(f"Выбран чёрный король: {square}. Выберите белого короля.")
+        self.combinations = []
+        self.current_combination = 0
+        self.update_combination_display()
+    
+    def select_white_king(self, square):
+        if square == self.black_king_pos:
+            messagebox.showwarning("Ошибка", "Белый король не может стоять на той же клетке!")
+            return
+        if self.white_king_pos and self.white_king_pos != square:
+            prev_color = "#F0D9B5" if (self.get_square_coords(self.white_king_pos)[0] + self.get_square_coords(self.white_king_pos)[1]) % 2 == 0 else "#B58863"
+            self.squares[self.white_king_pos].config(bg=prev_color, text="")
+        self.squares[square].config(bg="#3498DB", text="♔", fg="white")
+        self.white_king_pos = square
+        self.position_label.config(text=f"Чёрный король: {self.black_king_pos}\nБелый король: {square}")
+        self.stats_label.config(text=f"Белый король на {square}. Выберите фигуры и нажмите 'Найти'.")
+        self.status_var.set(f"Выбран белый король: {square}. Выберите фигуры и нажмите 'Найти комбинации'.")
+    
+    def reset_selections(self):
+        for sq_name, btn in self.squares.items():
+            color = "#F0D9B5" if (self.get_square_coords(sq_name)[0] + self.get_square_coords(sq_name)[1]) % 2 == 0 else "#B58863"
+            btn.config(bg=color, text="")
+        self.black_king_pos = None
+        self.white_king_pos = None
+        self.combinations = []
+        self.current_combination = 0
+        self.position_label.config(text="Позиция не выбрана")
+        self.stats_label.config(text="Выберите позицию чёрного короля")
+        self.status_var.set("Готов")
+        self.update_combination_display()
+    
+    def get_square_coords(self, square_name):
+        files = "abcdefgh"
+        ranks = "87654321"
+        file_char = square_name[0]
+        rank_char = square_name[1]
+        return (ranks.index(rank_char), files.index(file_char))
+    
+    def get_all_squares(self):
+        files = "abcdefgh"
+        ranks = "87654321"
+        squares = []
+        for file in files:
+            for rank in ranks:
+                squares.append(file + rank)
+        return squares
+    
+    def square_to_coords(self, square_name):
+        col = ord(square_name[0]) - ord('a')
+        row = 8 - int(square_name[1])
+        return row, col
+    
+    def coords_to_square(self, row, col):
+        file_char = chr(ord('a') + col)
+        rank_char = str(8 - row)
+        return file_char + rank_char
+    
+    def get_king_moves(self, king_pos):
+        moves = []
+        king_row, king_col = self.square_to_coords(king_pos)
+        for row_offset in [-1, 0, 1]:
+            for col_offset in [-1, 0, 1]:
+                if row_offset == 0 and col_offset == 0:
+                    continue
+                new_row = king_row + row_offset
+                new_col = king_col + col_offset
+                if 0 <= new_row < 8 and 0 <= new_col < 8:
+                    new_square = self.coords_to_square(new_row, new_col)
+                    moves.append(new_square)
+        return moves
+    
+    def is_square_attacked_by_piece(self, target_square, piece_pos, piece_type, is_white=True):
+        target_row, target_col = self.square_to_coords(target_square)
+        piece_row, piece_col = self.square_to_coords(piece_pos)
+        if piece_type == 'K':
+            return abs(piece_row - target_row) <= 1 and abs(piece_col - target_col) <= 1
+        elif piece_type == 'Q':
+            if piece_row == target_row or piece_col == target_col:
+                return True
+            if abs(piece_row - target_row) == abs(piece_col - target_col):
+                return True
+        elif piece_type == 'R':
+            return piece_row == target_row or piece_col == target_col
+        elif piece_type == 'B':
+            return abs(piece_row - target_row) == abs(piece_col - target_col)
+        elif piece_type == 'N':
+            row_diff = abs(piece_row - target_row)
+            col_diff = abs(piece_col - target_col)
+            return (row_diff == 2 and col_diff == 1) or (row_diff == 1 and col_diff == 2)
+        elif piece_type == 'P':
+            if is_white:
+                return (target_row == piece_row - 1 and abs(target_col - piece_col) == 1)
+        return False
+    
+    def is_square_attacked(self, square, white_king_pos, white_pieces):
+        if self.is_square_attacked_by_piece(square, white_king_pos, 'K'):
+            return True
+        for piece in white_pieces:
+            if self.is_square_attacked_by_piece(square, piece['pos'], piece['type']):
+                return True
+        return False
+
+    def is_piece_protected(self, piece_pos, white_king_pos, other_pieces):
+        if self.is_square_attacked_by_piece(piece_pos, white_king_pos, 'K'):
+            return True
+        for other_piece in other_pieces:
+            if self.is_square_attacked_by_piece(piece_pos, other_piece['pos'], other_piece['type']):
+                return True
+        return False
+
+    def is_valid_position(self, black_king_pos, white_king_pos, white_pieces):
+        black_row, black_col = self.square_to_coords(black_king_pos)
+        white_row, white_col = self.square_to_coords(white_king_pos)
+        if abs(black_row - white_row) <= 1 and abs(black_col - white_col) <= 1:
+            return False
+        all_positions = [white_king_pos] + [piece['pos'] for piece in white_pieces] + [black_king_pos]
+        if len(set(all_positions)) != len(all_positions):
+            return False
+        black_king_row, black_king_col = self.square_to_coords(black_king_pos)
+        for piece in white_pieces:
+            piece_row, piece_col = self.square_to_coords(piece['pos'])
+            if abs(piece_row - black_king_row) <= 1 and abs(piece_col - black_king_col) <= 1:
+                other_pieces = [p for p in white_pieces if p != piece]
+                if not self.is_piece_protected(piece['pos'], white_king_pos, other_pieces):
+                    return False
+        if self.is_square_attacked(black_king_pos, white_king_pos, white_pieces):
+            is_mate = True
+            for move in self.get_king_moves(black_king_pos):
+                if not self.is_square_attacked(move, white_king_pos, white_pieces):
+                    is_mate = False
+                    break
+            if not is_mate:
+                return False
+        return True
+    
+    def is_checkmate(self, black_king_pos, white_king_pos, white_pieces):
+        if not self.is_square_attacked(black_king_pos, white_king_pos, white_pieces):
+            return False
+        for move in self.get_king_moves(black_king_pos):
+            if not self.is_square_attacked(move, white_king_pos, white_pieces):
+                return False
+        return True
+    
+    def is_stalemate(self, black_king_pos, white_king_pos, white_pieces):
+        if self.is_square_attacked(black_king_pos, white_king_pos, white_pieces):
+            return False
+        has_safe_move = False
+        for move in self.get_king_moves(black_king_pos):
+            if not self.is_square_attacked(move, white_king_pos, white_pieces):
+                has_safe_move = True
+                break
+        return not has_safe_move
+    
+    def analyze_position_steps(self, black_king_pos, white_king_pos, white_pieces, is_mate):
+        steps = []
+        if is_mate:
+            steps.append("МАТ")
+            steps.append("Белые объявляют мат!")
+        else:
+            steps.append("ПАТ")
+            steps.append("Нет ходов!")
+        steps.append("")
+        steps.append("Позиции:")
+        steps.append(f"Чёрный король: {black_king_pos}")
+        steps.append(f"Белый король: {white_king_pos}")
+        for piece in white_pieces:
+            steps.append(f"{self.piece_symbols[piece['type']]} {self.piece_names[piece['type']]}: {piece['pos']}")
+        steps.append("")
+        king_moves = self.get_king_moves(black_king_pos)
+        dangerous_moves = []
+        safe_moves = []
+        for move in king_moves:
+            if self.is_square_attacked(move, white_king_pos, white_pieces):
+                dangerous_moves.append(move)
+            else:
+                safe_moves.append(move)
+        steps.append(f"Ходы чёрного короля: {len(king_moves)}")
+        if dangerous_moves:
+            steps.append(f"Под шахом: {', '.join(dangerous_moves)}")
+        if safe_moves:
+            steps.append(f"Безопасные: {', '.join(safe_moves)}")
+        else:
+            steps.append("Безопасных ходов нет!")
+        steps.append("")
+        if is_mate:
+            steps.append("МАТ")
+        else:
+            steps.append("ПАТ")
+        return "\n".join(steps)
+
+    def find_combinations(self): 
+        if self.black_king_pos is None:
+            messagebox.showwarning("Ошибка", "Сначала выберите чёрного короля!")
+            return
+        if self.white_king_pos is None:
+            messagebox.showwarning("Ошибка", "Сначала выберите белого короля!")
+            return
+        
+        fig1_name = self.fig1_var.get()
+        fig2_name = self.fig2_var.get()
+        piece1_type = self.name_to_code[fig1_name]
+        piece2_type = self.name_to_code[fig2_name]
+        
+        self.status_var.set("Поиск комбинаций...")
+        self.root.update()
+        
+        self.combinations = []
+        all_squares = self.get_all_squares()
+        available_squares = [sq for sq in all_squares if sq != self.black_king_pos and sq != self.white_king_pos]
+
+        checked_combinations = 0
+
+        for i in range(len(available_squares)):
+            piece1_pos = available_squares[i]
+            for j in range(len(available_squares)):
+                if i == j:
+                    continue
+                piece2_pos = available_squares[j]
+                checked_combinations += 1
+
+                if checked_combinations % 500 == 0:
+                    self.status_var.set(f"Проверено {checked_combinations} позиций...")
+                    self.root.update()
+                
+                white_pieces = [
+                    {'type': piece1_type, 'pos': piece1_pos},
+                    {'type': piece2_type, 'pos': piece2_pos}
+                ]
+                
+                if not self.is_valid_position(self.black_king_pos, self.white_king_pos, white_pieces):
+                    continue
+
+                is_mate = self.is_checkmate(self.black_king_pos, self.white_king_pos, white_pieces)
+                is_stalemate = self.is_stalemate(self.black_king_pos, self.white_king_pos, white_pieces)
+                
+                if is_mate or is_stalemate:
+                    steps_analysis = self.analyze_position_steps(
+                        self.black_king_pos, self.white_king_pos, white_pieces, is_mate
+                    )
+                    combination = {
+                        'white_king': self.white_king_pos,
+                        'piece1': {'type': piece1_type, 'pos': piece1_pos},
+                        'piece2': {'type': piece2_type, 'pos': piece2_pos},
+                        'is_mate': is_mate,
+                        'is_stalemate': is_stalemate,
+                        'steps_analysis': steps_analysis
+                    }
+                    self.combinations.append(combination)
+        
+        self.status_var.set(f"Найдено {len(self.combinations)} комбинаций (проверено {checked_combinations})")
+        
+        if self.combinations:
+            self.current_combination = 0
+            self.update_combination_display()
+            self.prev_btn.config(state="normal")
+            self.next_btn.config(state="normal")
+            self.goto_btn.config(state="normal")
+        else:
+            messagebox.showinfo("Результат", "Для выбранных фигур мат/пат не найден.")
+            self.prev_btn.config(state="disabled")
+            self.next_btn.config(state="disabled")
+            self.goto_btn.config(state="disabled")
+    
+    def update_combination_display(self):
+        if not self.combinations:
+            self.combination_label.config(text="Комбинация не выбрана")
+            self.steps_text.delete(1.0, tk.END)
+            return
+        
+        comb = self.combinations[self.current_combination]
+        status = "МАТ" if comb['is_mate'] else "ПАТ"
+        text = (f"Комбинация {self.current_combination + 1} из {len(self.combinations)} — {status}\n"
+                f"Белый король: {comb['white_king']}\n"
+                f"{self.piece_symbols[comb['piece1']['type']]} {self.piece_names[comb['piece1']['type']]}: {comb['piece1']['pos']}\n"
+                f"{self.piece_symbols[comb['piece2']['type']]} {self.piece_names[comb['piece2']['type']]}: {comb['piece2']['pos']}")
+        self.combination_label.config(text=text)
+        self.steps_text.delete(1.0, tk.END)
+        self.steps_text.insert(1.0, comb['steps_analysis'])
+        self.display_board_combination(comb)
+
+        mate_count = sum(1 for c in self.combinations if c['is_mate'])
+        stalemate_count = sum(1 for c in self.combinations if c['is_stalemate'])
+        self.stats_label.config(text=f"Всего: {len(self.combinations)} (Мат: {mate_count}, Пат: {stalemate_count})")
+
+        pos_text = (f"Чёрный король: {self.black_king_pos}\n"
+                   f"Белый король: {comb['white_king']}\n"
+                   f"{self.piece_symbols[comb['piece1']['type']]} {self.piece_names[comb['piece1']['type']]}: {comb['piece1']['pos']}\n"
+                   f"{self.piece_symbols[comb['piece2']['type']]} {self.piece_names[comb['piece2']['type']]}: {comb['piece2']['pos']}")
+        self.position_label.config(text=pos_text)
+    
+    def display_board_combination(self, combination):
+        for square_name, btn in self.squares.items():
+            color = "#F0D9B5" if (self.get_square_coords(square_name)[0] + self.get_square_coords(square_name)[1]) % 2 == 0 else "#B58863"
+            btn.config(bg=color, text="", fg="black")
+        self.squares[self.black_king_pos].config(bg="#2C3E50", text="♔", fg="white")
+        self.squares[combination['white_king']].config(bg="#3498DB", text="♔", fg="white")
+        self.squares[combination['piece1']['pos']].config(
+            bg="#27AE60", text=self.piece_symbols[combination['piece1']['type']], fg="white"
+        )
+        self.squares[combination['piece2']['pos']].config(
+            bg="#27AE60", text=self.piece_symbols[combination['piece2']['type']], fg="white"
+        )
+    
+    def previous_combination(self):
+        if self.combinations and self.current_combination > 0:
+            self.current_combination -= 1
+            self.update_combination_display()
+    
+    def next_combination(self):
+        if self.combinations and self.current_combination < len(self.combinations) - 1:
+            self.current_combination += 1
+            self.update_combination_display()
+    
+    def goto_combination(self):
+        try:
+            comb_num = int(self.combination_var.get()) - 1
+            if 0 <= comb_num < len(self.combinations):
+                self.current_combination = comb_num
+                self.update_combination_display()
+                self.combination_var.set("")
+            else:
+                messagebox.showwarning("Ошибка", f"Введите число от 1 до {len(self.combinations)}")
+        except ValueError:
+            messagebox.showwarning("Ошибка", "Введите корректный номер комбинации")
+
+def main():
+    root = tk.Tk()
+    app = ChessMatePatAnalyzer(root)
+    root.mainloop()
+
+if __name__ == "__main__":
+    main()
