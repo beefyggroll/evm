@@ -1,426 +1,170 @@
-import sys
-import re
-import math
-from typing import List, Tuple
 import numpy as np
-from PyQt5.QtWidgets import (QApplication, QMainWindow, QWidget, QVBoxLayout, QHBoxLayout,
-                             QRadioButton, QLineEdit, QPushButton, QLabel, QTextEdit,
-                             QFileDialog, QMessageBox, QGroupBox, QSlider)
-from PyQt5.QtCore import Qt
-from matplotlib.backends.backend_qt5agg import FigureCanvasQTAgg as FigureCanvas
-from matplotlib.figure import Figure
-import matplotlib.ticker as ticker
+import matplotlib.pyplot as plt
+import matplotlib.widgets as widgets
+
+def target_function(x):
+    x = np.asarray(x)
+    term1 = x**2 - 3
+    term2 = np.cbrt(x - 1.2)
+    term3 = x - 0.5
+    y = term1 * term2 / term3 - 2 * x
+    return y
+
+def newton_interpolation(x_nodes, y_nodes, x_eval):
+    n = len(x_nodes)
+    coef = np.copy(y_nodes).astype(float)
+    for j in range(1, n):
+        for i in range(n - 1, j - 1, -1):
+            coef[i] = (coef[i] - coef[i - 1]) / (x_nodes[i] - x_nodes[i - j])
+    result = coef[0]
+    prod = 1.0
+    for i in range(1, n):
+        prod *= (x_eval - x_nodes[i - 1])
+        result += coef[i] * prod
+    return result, coef
 
 
-class PlotCanvas(FigureCanvas):
-    def __init__(self, parent=None, width=5, height=4, dpi=100):
-        self.fig = Figure(figsize=(width, height), dpi=dpi)
-        super().__init__(self.fig)
-        self.setParent(parent)
+def generate_interpolation_points(func, a, b, n_points, method='chebyshev'):
+    if a >= b:
+        raise ValueError("a must be less than b")
+    if a < 0.5 < b:
+        n_left = max(1, n_points // 2)
+        n_right = n_points - n_left
+        if method == 'chebyshev':
+            k_left = np.arange(1, n_left + 1)
+            x_left = 0.5 * (a + (0.5 - 1e-6)) + 0.5 * ((0.5 - 1e-6) - a) * np.cos((2 * k_left - 1) * np.pi / (2 * n_left))
+            k_right = np.arange(1, n_right + 1)
+            x_right = 0.5 * ((0.5 + 1e-6) + b) + 0.5 * (b - (0.5 + 1e-6)) * np.cos((2 * k_right - 1) * np.pi / (2 * n_right))
+        else:
+            x_left = np.linspace(a, 0.5 - 1e-6, n_left)
+            x_right = np.linspace(0.5 + 1e-6, b, n_right)
+        x_points = np.concatenate([x_left, x_right])
+    else:
+        if method == 'chebyshev':
+            k = np.arange(1, n_points + 1)
+            x_points = 0.5 * (a + b) + 0.5 * (b - a) * np.cos((2 * k - 1) * np.pi / (2 * n_points))
+        else:
+            x_points = np.linspace(a, b, n_points)
+        x_points = np.sort(x_points)
+    y_points = func(x_points)
+    return x_points, y_points
 
-        self.axes = self.fig.add_subplot(111)
-        self._setup_axes()
-        self.initial_xlim = (-1.5, 30)  
-        self.initial_ylim = (-10, 10)
-        self.axes.set_xlim(self.initial_xlim)
-        self.axes.set_ylim(self.initial_ylim)
-        self._update_ticks()
+def update_plot(degree_text):
+    try:
+        degree = int(degree_text)
+        if degree < 1 or degree > 50:
+            status_text.set_text("Ошибка: степень от 1 до 50")
+            plt.draw()
+            return
+    except ValueError:
+        status_text.set_text("Ошибка: введите целое число")
+        plt.draw()
+        return
 
-        self.current_function = ""
-        self.is_analytical = True
-        self._auto_redraw = False
+    global interp_line, interp_points_plot, test_marker_plot
+    for obj in [interp_line, interp_points_plot, test_marker_plot]:
+        if obj:
+            obj.remove()
 
-    def _setup_axes(self):
-        self.axes.grid(True, linestyle='--', alpha=0.7)
-        self.axes.axhline(y=0, color='k', linewidth=1)
-        self.axes.axvline(x=0, color='k', linewidth=1)
-        self.axes.set_xlabel('X')
-        self.axes.set_ylabel('Y')
-        self.axes.set_aspect('auto')
+    n_points = degree + 1
+    try:
+        x_interp, y_interp = generate_interpolation_points(target_function, interp_a, interp_b, n_points, 'chebyshev')
+        if len(x_interp) < 2:
+            status_text.set_text("Ошибка: недостаточно узлов")
+            plt.draw()
+            return
+    except Exception as e:
+        status_text.set_text(f"Ошибка: {e}")
+        plt.draw()
+        return
 
-    def _update_ticks(self):
-        xlim = self.axes.get_xlim()
-        ylim = self.axes.get_ylim()
-        x_range = xlim[1] - xlim[0]
-        y_range = ylim[1] - ylim[0]
+    y_newton = np.full_like(x_dense, np.nan)
+    for i, xv in enumerate(x_dense):
+        if interp_a <= xv <= interp_b:
+            try:
+                y_newton[i], _ = newton_interpolation(x_interp, y_interp, xv)
+            except:
+                y_newton[i] = np.nan
 
-        def round_step(value):
-            if value <= 0:
-                return 1.0
-            log_val = math.floor(math.log10(value))
-            mantissa = value / (10 ** log_val)
-            if mantissa <= 1:
-                return 1 * (10 ** log_val)
-            elif mantissa <= 2:
-                return 2 * (10 ** log_val)
-            elif mantissa <= 5:
-                return 5 * (10 ** log_val)
+    test_info = ""
+    test_val = np.nan
+    if interp_a <= test_point <= interp_b:
+        try:
+            test_val, _ = newton_interpolation(x_interp, y_interp, test_point)
+            true_val = target_function(np.array([test_point]))[0]
+            if not np.isnan(test_val):
+                error = abs(test_val - true_val)
+                test_info = f'Интерполированное: {test_val:.4f} (Погрешность: {error:.2e})'
             else:
-                return 10 * (10 ** log_val)
-
-        x_step = round_step(x_range / 8) if x_range > 0 else 1.0
-        y_step = round_step(y_range / 8) if y_range > 0 else 1.0
-
-        self.axes.xaxis.set_major_locator(ticker.MultipleLocator(x_step))
-        self.axes.yaxis.set_major_locator(ticker.MultipleLocator(y_step))
-        self.axes.xaxis.set_major_formatter(ticker.FormatStrFormatter('%.6g'))
-        self.axes.yaxis.set_major_formatter(ticker.FormatStrFormatter('%.6g'))
-
-    def get_view_params(self):
-        xlim = self.axes.get_xlim()
-        ylim = self.axes.get_ylim()
-        center_x = (xlim[0] + xlim[1]) / 2
-        center_y = (ylim[0] + ylim[1]) / 2
-        scale = (xlim[1] - xlim[0]) / 20.0
-        return center_x, center_y, scale
-
-    def set_view(self, offset_x, offset_y, scale):
-        min_scale = 0.0001  # Минимально допустимый масштаб
-        max_scale = 1000.0  # Максимально допустимый масштаб
-        scale = max(min_scale, min(max_scale, scale))
-
-        width = 20.0 * scale
-        height = width
-
-        left = offset_x - width / 2
-        right = offset_x + width / 2
-        bottom = offset_y - height / 2
-        top = offset_y + height / 2
-
-        self.axes.set_xlim(left, right)
-        self.axes.set_ylim(bottom, top)
-        self._update_ticks()
-        self.draw()
-
-        if self.is_analytical and self.current_function and not self._auto_redraw:
-            self._safe_redraw()
-
-    def _safe_redraw(self):
-        old_redraw = self._auto_redraw
-        self._auto_redraw = True
-        try:
-            self.plot_analytical_function(self.current_function)
-        finally:
-            self._auto_redraw = old_redraw
-
-    def plot_analytical_function(self, function_str: str):
-        try:
-            current_xlim = self.axes.get_xlim()
-            current_ylim = self.axes.get_ylim()
-
-            self.axes.clear()
-            self._setup_axes()
-            self._update_ticks()
-
-            expr = function_str.strip()
-            expr = re.sub(r'\bln\s*\(', 'log(', expr)
-            expr = expr.replace('^', '**')
-
-            def real_cbrt(z):
-                return np.sign(z) * np.abs(z) ** (1/3)
-
-            expr = re.sub(
-                r'(\([^)]*\)|[a-zA-Z_]\w*|\d+(?:\.\d+)?(?:[eE][+-]?\d+)?|x)\s*\*\*\s*\(?\s*1\s*/\s*3\s*\)?',
-                r'real_cbrt(\1)',
-                expr
-            )
-
-            x_min, x_max = current_xlim
-            x_min = max(-1.5, x_min)
-            if x_max <= x_min:
-                x_max = x_min + 1.0
-
-            asymptotes = []
-            k_start = int(math.floor((x_min - 2) / 4)) - 1
-            k_end = int(math.ceil((x_max - 2) / 4)) + 1
-            for k in range(k_start, k_end + 1):
-                a = 2 + 4 * k
-                if x_min <= a <= x_max:
-                    asymptotes.append(a)
-
-            boundaries = [x_min]
-            boundaries.extend(sorted(asymptotes))
-            boundaries.append(x_max)
-
-            local_dict = {
-                'x': None,
-                'np': np,
-                'sin': np.sin,
-                'cos': np.cos,
-                'tan': np.tan,
-                'exp': np.exp,
-                'log': np.log,
-                'log10': np.log10,
-                'sqrt': np.sqrt,
-                'abs': np.abs,
-                'pi': np.pi,
-                'e': np.e,
-                'cbrt': np.cbrt,
-                'real_cbrt': real_cbrt
-            }
-
-            for i in range(len(boundaries) - 1):
-                start = boundaries[i]
-                end = boundaries[i + 1]
-
-                eps = 1e-8
-                seg_start = start + (eps if i > 0 else 0)
-                seg_end = end - (eps if i < len(boundaries) - 2 else 0)
-
-                if seg_end <= seg_start:
-                    continue
-
-                n_points = max(500, int(2000 * (seg_end - seg_start)))
-                x_vals = np.linspace(seg_start, seg_end, n_points)
-
-                local_dict['x'] = x_vals
-                import warnings
-                with warnings.catch_warnings():
-                    warnings.simplefilter("ignore")
-                    y_vals = eval(expr, {"__builtins__": {}}, local_dict)
-
-                y_vals = np.array(y_vals, dtype=np.float64)
-
-                nan_mask = np.isnan(y_vals) | np.isinf(y_vals)
-
-                y_plot = y_vals.copy()
-                y_plot[nan_mask] = np.nan
-
-                self.axes.plot(x_vals, y_plot, 'r-', linewidth=1.2, zorder=1)
-
-            self.axes.set_title(f'График функции: {function_str}')
-            self.current_function = function_str
-            self.is_analytical = True
-
-            self.axes.set_xlim(current_xlim)
-            self.axes.set_ylim(current_ylim)
-            self._update_ticks()
-            self.draw()
-
+                test_info = 'NaN'
         except Exception as e:
-            raise ValueError(f"Ошибка построения: {str(e)}")
+            test_info = f'Ошибка: {e}'
+    else:
+        test_info = 'Точка вне интервала'
 
-    def plot_tabular_function(self, points: List[Tuple[float, float]]):
-        try:
-            current_xlim = self.axes.get_xlim()
-            current_ylim = self.axes.get_ylim()
+    interp_line, = ax.plot(x_dense, y_newton, '--', color='red', linewidth=1.5,
+                           label=f'Многочлен Ньютона (степень {degree})')
+    interp_points_plot = ax.scatter(x_interp, y_interp, color='green', s=30, zorder=5,
+                                    label=f'Узлы ({len(x_interp)})')
+    if not np.isnan(test_val) and interp_a <= test_point <= interp_b:
+        test_marker_plot = ax.plot(test_point, test_val, 's', color='magenta', markersize=8,
+                                   markerfacecolor='none', markeredgewidth=2)[0]
+    else:
+        test_marker_plot = None
 
-            self.axes.clear()
-            self._setup_axes()
-            self.axes.set_xlim(current_xlim)
-            self.axes.set_ylim(current_ylim)
-            self._update_ticks()
+    status_text.set_text(f'Степень {degree}. {test_info}')
+    ax.legend(loc='upper right')
+    plt.draw()
 
-            if not points:
-                raise ValueError("Нет данных для отображения")
+def on_submit(event):
+    update_plot(text_box.text)
 
-            x_vals = [p[0] for p in points]
-            y_vals = [p[1] for p in points]
+WIDE_RANGE = 20.0 
+x_dense = np.linspace(-WIDE_RANGE, WIDE_RANGE, 5000)
 
-            self.axes.plot(x_vals, y_vals, 'bo-', markersize=4, linewidth=1, zorder=1)
-            self.axes.set_title('Табличная функция')
-            self.is_analytical = False
-            self._update_ticks()
-            self.draw()
+mask_left = x_dense < 0.5
+mask_right = x_dense > 0.5
+x_left = x_dense[mask_left]
+x_right = x_dense[mask_right]
 
-        except Exception as e:
-            raise ValueError(f"Ошибка построения табличной функции: {str(e)}")
+y_true_left = target_function(x_left)
+y_true_right = target_function(x_right)
 
-    def reset_view(self):
-        self.axes.clear()
-        self._setup_axes()
-        self.axes.set_xlim(self.initial_xlim)
-        self.axes.set_ylim(self.initial_ylim)
-        self._update_ticks()
-        self.axes.set_title('График функции')
-        self.draw()
+interp_a, interp_b = 0.6, 3.0  
+test_point = 2.5
+true_test_value = target_function(np.array([test_point]))[0]
 
+fig, ax = plt.subplots(figsize=(14, 10))
+plt.subplots_adjust(bottom=0.15)
 
-class FunctionPlotter(QMainWindow):
-    def __init__(self):
-        super().__init__()
-        self.tabular_points = []
-        self.init_ui()
+ax.plot(x_left, y_true_left, 'b-', linewidth=1.5, label='f(x)')
+ax.plot(x_right, y_true_right, 'b-', linewidth=1.5)
 
-    def init_ui(self):
-        self.setWindowTitle('Лабораторная работа №1')
-        self.setGeometry(100, 100, 1200, 700)
+ax.axvspan(interp_a, interp_b, alpha=0.1, color='yellow', label='Интервал интерполяции')
+ax.axvline(x=test_point, color='gray', linestyle=':', alpha=0.7, label=f'x = {test_point}')
+ax.plot(test_point, true_test_value, 'k*', markersize=10, label=f'f({test_point}) = {true_test_value:.4f}')
 
-        central_widget = QWidget()
-        self.setCentralWidget(central_widget)
-        main_layout = QHBoxLayout(central_widget)
+ax.set_xlabel('x')
+ax.set_ylabel('f(x)')
+ax.set_title('Интерполяция функции f(x) = (x² - 3)·∛(x - 1.2)/(x - 0.5) - 2x')
+ax.grid(True, alpha=0.3)
+ax.set_xlim(-WIDE_RANGE, WIDE_RANGE)
+ax.set_ylim(-30, 30)
 
-        control_panel = QWidget()
-        control_panel.setFixedWidth(320)
-        control_layout = QVBoxLayout(control_panel)
+axbox = plt.axes([0.15, 0.05, 0.2, 0.04])
+axbutton = plt.axes([0.4, 0.05, 0.1, 0.04])
+axstatus = plt.axes([0.55, 0.05, 0.4, 0.04])
 
-        type_group = QGroupBox("Тип функции:")
-        type_layout = QVBoxLayout(type_group)
-        self.radio_analytical = QRadioButton("Аналитическая функция")
-        self.radio_tabular = QRadioButton("Табличная функция")
-        self.radio_analytical.setChecked(True)
-        type_layout.addWidget(self.radio_analytical)
-        type_layout.addWidget(self.radio_tabular)
+text_box = widgets.TextBox(axbox, 'Степень: ', initial="5")
+submit_button = widgets.Button(axbutton, 'Построить')
+status_text = axstatus.text(0, 0.5, 'Степень от 1 до 50', fontsize=10, va='center')
+axstatus.axis('off')
 
-        function_group = QGroupBox("Формула:")
-        function_layout = QVBoxLayout(function_group)
-        self.txt_function = QLineEdit("(x-1.3)*sqrt(x+1.5)+tan(pi*x/4)")
-        self.txt_function.setPlaceholderText("Например: x^(1/3), 1/x, ln(x), tan(x)")
-        function_layout.addWidget(QLabel("Функция:"))
-        function_layout.addWidget(self.txt_function)
+interp_line = None
+interp_points_plot = None
+test_marker_plot = None
 
-        self.btn_plot = QPushButton("Построить график")
-        self.btn_plot.setStyleSheet("background-color: #4682B4; color: white;")
-        self.btn_load_file = QPushButton("Загрузить файл")
-        self.btn_load_file.setStyleSheet("background-color: #32CD32; color: white;")
-        self.btn_load_file.setEnabled(False)
-        self.btn_reset = QPushButton("Сброс")
-        self.btn_reset.setStyleSheet("background-color: #FFA500; color: white;")
+submit_button.on_clicked(on_submit)
+update_plot("5")
 
-        scale_group = QGroupBox("Масштаб:")
-        scale_layout = QVBoxLayout(scale_group)
-        # Расширенный диапазон для поддержки 10^-4
-        self.slider_scale = QSlider(Qt.Horizontal)
-        self.slider_scale.setRange(-4000, 4000)  # 10^(-4) до 10^4
-        self.slider_scale.setValue(0)
-        self.slider_scale.valueChanged.connect(self.on_scale_changed)
-        self.label_scale = QLabel("Масштаб: 1.0000")
-        scale_layout.addWidget(self.label_scale)
-        scale_layout.addWidget(self.slider_scale)
-
-        pan_group = QGroupBox("Перемещение:")
-        pan_layout = QVBoxLayout(pan_group)
-        self.slider_pan_x = QSlider(Qt.Horizontal)
-        self.slider_pan_x.setRange(-50000, 50000)
-        self.slider_pan_x.setValue(0)
-        self.slider_pan_x.valueChanged.connect(self.on_pan_x_changed)
-        self.slider_pan_y = QSlider(Qt.Horizontal)
-        self.slider_pan_y.setRange(-50000, 50000)
-        self.slider_pan_y.setValue(0)
-        self.slider_pan_y.valueChanged.connect(self.on_pan_y_changed)
-        pan_layout.addWidget(QLabel("По X:"))
-        pan_layout.addWidget(self.slider_pan_x)
-        pan_layout.addWidget(QLabel("По Y:"))
-        pan_layout.addWidget(self.slider_pan_y)
-
-        self.txt_file_content = QTextEdit()
-        self.txt_file_content.setReadOnly(True)
-        self.txt_file_content.setMaximumHeight(150)
-        self.txt_file_content.setVisible(False)
-
-        control_layout.addWidget(type_group)
-        control_layout.addWidget(function_group)
-        control_layout.addWidget(self.btn_plot)
-        control_layout.addWidget(self.btn_load_file)
-        control_layout.addWidget(self.btn_reset)
-        control_layout.addWidget(scale_group)
-        control_layout.addWidget(pan_group)
-        control_layout.addWidget(QLabel("Содержимое файла:"))
-        control_layout.addWidget(self.txt_file_content)
-        control_layout.addStretch()
-
-        self.plot_canvas = PlotCanvas(self, width=8, height=6)
-        main_layout.addWidget(control_panel)
-        main_layout.addWidget(self.plot_canvas)
-
-        self.radio_analytical.toggled.connect(self.on_function_type_changed)
-        self.btn_plot.clicked.connect(self.on_plot_clicked)
-        self.btn_load_file.clicked.connect(self.on_load_file_clicked)
-        self.btn_reset.clicked.connect(self.on_reset_clicked)
-
-    def on_function_type_changed(self):
-        is_analytical = self.radio_analytical.isChecked()
-        self.txt_function.setEnabled(is_analytical)
-        self.btn_load_file.setEnabled(not is_analytical)
-        self.txt_file_content.setVisible(not is_analytical)
-
-    def on_plot_clicked(self):
-        try:
-            if self.radio_analytical.isChecked():
-                self.plot_canvas.plot_analytical_function(self.txt_function.text())
-            else:
-                if not self.tabular_points:
-                    raise ValueError("Сначала загрузите файл")
-                self.plot_canvas.plot_tabular_function(self.tabular_points)
-        except Exception as e:
-            QMessageBox.critical(self, "Ошибка", str(e))
-
-    def on_load_file_clicked(self):
-        try:
-            path, _ = QFileDialog.getOpenFileName(self, "Открыть TXT файл", "", "Text files (*.txt)")
-            if path:
-                self.load_tabular_data(path)
-        except Exception as e:
-            QMessageBox.critical(self, "Ошибка", str(e))
-
-    def on_reset_clicked(self):
-        self.plot_canvas.reset_view()
-        self.slider_pan_x.setValue(0)
-        self.slider_pan_y.setValue(0)
-        self.slider_scale.setValue(0)
-        self.label_scale.setText("Масштаб: 1.0000")
-
-    def on_scale_changed(self, value):
-        # Логарифмическое преобразование
-        exponent = value / 1000.0
-        scale_raw = 10 ** exponent
-
-        # Квантование масштаба до шага 0.0001
-        step = 0.0001
-        scale = round(scale_raw / step) * step
-
-        # Ограничение диапазона
-        scale = max(0.0001, min(1000.0, scale))
-
-        self.label_scale.setText(f"Масштаб: {scale:.4f}")
-        cx, cy, _ = self.plot_canvas.get_view_params()
-        self.plot_canvas.set_view(cx, cy, scale)
-
-    def on_pan_x_changed(self, value):
-        offset_x = value / 1000.0
-        _, cy, scale = self.plot_canvas.get_view_params()
-        self.plot_canvas.set_view(offset_x, cy, scale)
-
-    def on_pan_y_changed(self, value):
-        offset_y = value / 1000.0
-        cx, _, scale = self.plot_canvas.get_view_params()
-        self.plot_canvas.set_view(cx, offset_y, scale)
-
-    def load_tabular_data(self, file_path: str):
-        self.tabular_points = []
-        lines_out = []
-        try:
-            with open(file_path, 'r', encoding='utf-8') as f:
-                for line in f:
-                    line = line.strip()
-                    if not line or line.startswith(('#', '//')):
-                        continue
-                    parts = re.split(r'[\s,;]+', line)
-                    nums = []
-                    for p in parts:
-                        p = p.strip().replace(',', '.')
-                        if p:
-                            try:
-                                nums.append(float(p))
-                            except ValueError:
-                                pass
-                    if len(nums) >= 2:
-                        self.tabular_points.append((nums[0], nums[1]))
-                        lines_out.append(f"{nums[0]:.6f} {nums[1]:.6f}")
-            if not self.tabular_points:
-                raise ValueError("Нет валидных данных")
-            self.txt_file_content.setText('\n'.join(lines_out))
-        except Exception as e:
-            raise ValueError(f"Ошибка файла: {e}")
-
-
-def main():
-    app = QApplication(sys.argv)
-    app.setStyle('Fusion')
-    window = FunctionPlotter()
-    window.show()
-    sys.exit(app.exec_())
-
-
-if __name__ == '__main__':
-    main()
+plt.show()
