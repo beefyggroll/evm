@@ -1,0 +1,168 @@
+import math
+import matplotlib.pyplot as plt
+import numpy as np
+
+def f1(x, y):
+    try:
+        return 1.1 ** (-(x*x - x*y + 2*y*y)) - 0.1
+    except:
+        return float('inf')
+
+def f2(x, y):
+    try:
+        return math.cos(0.03*x*x - 0.04*x*y + 0.01*y*y) - 0.1*x*y
+    except:
+        return float('inf')
+
+def phi(x, y):
+    fv1 = f1(x, y)
+    fv2 = f2(x, y)
+    return fv1*fv1 + fv2*fv2
+
+def dphi_dx(x, y):
+    Q = x*x - x*y + 2*y*y
+    R = 0.03*x*x - 0.04*x*y + 0.01*y*y
+    try:
+        f1_val = 1.1 ** (-Q) - 0.1
+        f2_val = math.cos(R) - 0.1*x*y
+    except:
+        return 0.0
+
+    dQ_dx = 2*x - y
+    df1_dx = - (1.1 ** (-Q)) * math.log(1.1) * dQ_dx
+    dR_dx = 0.06*x - 0.04*y
+    df2_dx = -math.sin(R) * dR_dx - 0.1 * y
+    return 2 * f1_val * df1_dx + 2 * f2_val * df2_dx
+
+def dphi_dy(x, y):
+    Q = x*x - x*y + 2*y*y
+    R = 0.03*x*x - 0.04*x*y + 0.01*y*y
+    try:
+        f1_val = 1.1 ** (-Q) - 0.1
+        f2_val = math.cos(R) - 0.1*x*y
+    except:
+        return 0.0
+
+    dQ_dy = -x + 4*y
+    df1_dy = - (1.1 ** (-Q)) * math.log(1.1) * dQ_dy
+    dR_dy = -0.04*x + 0.02*y
+    df2_dy = -math.sin(R) * dR_dy - 0.1 * x
+    return 2 * f1_val * df1_dy + 2 * f2_val * df2_dy
+
+def norm(dx, dy):
+    return math.sqrt(dx*dx + dy*dy)
+
+def line_search(x, y, grad_x, grad_y, phi_val, alpha=1.0, rho=0.5, c=1e-4, max_ls_iter=20):
+    t = alpha
+    grad_norm_sq = grad_x*grad_x + grad_y*grad_y
+    if grad_norm_sq == 0:
+        return 0.0
+    for _ in range(max_ls_iter):
+        x_new = x - t * grad_x
+        y_new = y - t * grad_y
+        phi_new = phi(x_new, y_new)
+        if phi_new <= phi_val - c * t * grad_norm_sq:
+            return t
+        t *= rho
+    return t
+
+def steepest_descent_with_path(x0, y0, eps=1e-4, max_iter=10000):
+    x, y = x0, y0
+    path = [(x, y)]
+    for k in range(max_iter):
+        grad_x = dphi_dx(x, y)
+        grad_y = dphi_dy(x, y)
+        grad_norm = norm(grad_x, grad_y)
+        if grad_norm < eps:
+            break
+        phi_val = phi(x, y)
+        t = line_search(x, y, grad_x, grad_y, phi_val)
+        x_new = x - t * grad_x
+        y_new = y - t * grad_y
+        path.append((x_new, y_new))
+        if norm(x_new - x, y_new - y) < eps:
+            break
+        x, y = x_new, y_new
+    return x, y, len(path) - 1, path
+
+def plot_solution(x0, y0, xf, yf, path, margin=0.8):
+    xs = [p[0] for p in path]
+    ys = [p[1] for p in path]
+
+    x_center = (min(xs) + max(xs)) / 2
+    y_center = (min(ys) + max(ys)) / 2
+    spread = max(max(xs) - min(xs), max(ys) - min(ys))
+    half = spread / 2 + margin
+
+    x_min, x_max = x_center - half, x_center + half
+    y_min, y_max = y_center - half, y_center + half
+
+    N = 3000
+    x_lin = np.linspace(x_min, x_max, N)
+    y_lin = np.linspace(y_min, y_max, N)
+    X, Y = np.meshgrid(x_lin, y_lin)
+
+    Q = X**2 - X*Y + 2*Y**2
+    R = 0.03*X**2 - 0.04*X*Y + 0.01*Y**2
+    f1_grid = np.power(1.1, -Q) - 0.1
+    f2_grid = np.cos(R) - 0.1 * X * Y
+    Z = f1_grid**2 + f2_grid**2
+    Z = np.clip(Z, 1e-15, None)
+    logZ = np.log10(Z)
+
+    fig, ax = plt.subplots(figsize=(10, 8), dpi=100)
+
+    levels = np.linspace(logZ.min(), logZ.max(), 50)
+    if len(np.unique(levels)) < 20:
+        levels = np.linspace(logZ.min(), logZ.max(), 100)
+
+    contour = ax.contour(
+        X, Y, logZ,
+        levels=levels,
+        cmap='viridis',         
+        linewidths=0.8,
+        antialiased=True
+    )
+    ax.clabel(contour, inline=True, fontsize=6, fmt='%.1f')
+
+    ax.plot(xs, ys, '-', color='red', linewidth=2.2, label='Траектория')
+    ax.plot(xs, ys, 'o', color='darkred', markersize=3)
+
+    ax.plot(x0, y0, 'ro', markersize=10, markerfacecolor='red', markeredgecolor='black', label='Начало')
+    ax.plot(xf, yf, 'g*', markersize=16, markeredgecolor='black', markeredgewidth=1.0, label='Решение')
+
+    ax.set_xlabel('x', fontsize=12)
+    ax.set_ylabel('y', fontsize=12)
+    ax.set_title('Метод наискорейшего спуска', fontsize=13)
+    ax.legend(loc='best')
+    ax.grid(True, linestyle=':', alpha=0.5)
+
+    ax.set_xlim(x_min, x_max)
+    ax.set_ylim(y_min, y_max)
+    ax.set_aspect('equal', adjustable='datalim')  
+
+    plt.tight_layout()
+    plt.show()
+
+if __name__ == "__main__":
+    print("Решение системы нелинейных уравнений методом наискорейшего спуска")
+    print("=" * 70)
+    print("Система:")
+    print("1) 1.1^(-(x² - x·y + 2·y²)) = 0.1")
+    print("2) cos(0.03·x² - 0.04·x·y + 0.01·y²) - 0.1·x·y = 0")
+    print("=" * 70)
+
+    x0, y0 = 0.05, 3.9
+    eps = 1e-4
+
+    xf, yf, iters, path = steepest_descent_with_path(x0, y0, eps=eps)
+
+    print(f"\nНайдено решение:")
+    print(f"x = {xf:.10f}")
+    print(f"y = {yf:.10f}")
+    print(f"Число итераций: {iters}")
+    print(f"Φ(x, y) = {phi(xf, yf):.2e}")
+    print(f"f₁(x, y) = {f1(xf, yf):.2e}")
+    print(f"f₂(x, y) = {f2(xf, yf):.2e}")
+
+    plot_solution(x0, y0, xf, yf, path, margin=0.8)
