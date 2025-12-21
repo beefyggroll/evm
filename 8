@@ -1,0 +1,50 @@
+import numpy as np
+import matplotlib.pyplot as plt
+
+def f(x, y):
+    return np.arcsin(1 - 1 / (np.exp(x) + y**2))
+
+x0 = 0
+y0 = 1
+xf = 1
+h = 0.01  
+
+x_values = np.arange(x0, xf + h, h)
+y_values = np.zeros_like(x_values)
+y_values[0] = y0
+
+for i in range(len(x_values) - 1):
+    y_values[i + 1] = y_values[i] + h * f(x_values[i], y_values[i])
+
+plt.figure(figsize=(10, 6))
+plt.plot(x_values, y_values, label='Решение методом Эйлера', color='blue')
+plt.xlabel('x')
+plt.ylabel('y(x)')
+plt.title('Численное решение ОДУ методом Эйлера')
+plt.grid(True)
+plt.legend()
+plt.show()
+
+check_points = [0.3, 0.6, 0.9]
+print("\nПроверка выполнения уравнения в трёх точках:")
+print("-" * 100)
+print(f"{'x':<8} {'y(x)':<12} {'f(x,y)':<15} {'dy/dx (численно)':<20} {'Погрешность':<15}")
+print("-" * 100)
+
+for x_check in check_points:
+    idx = int(round((x_check - x0) / h))
+    if idx >= len(x_values):
+        idx = len(x_values) - 1
+    x_actual = x_values[idx]
+    y_actual = y_values[idx]
+
+    f_exact = f(x_actual, y_actual)
+
+    if idx < len(x_values) - 1:
+        y_prime_approx = (y_values[idx + 1] - y_values[idx]) / h
+    else:
+        y_prime_approx = (y_values[idx] - y_values[idx - 1]) / h
+
+    error = abs(y_prime_approx - f_exact)
+
+    print(f"{x_actual:<8.4f} {y_actual:<12.6f} {f_exact:<15.6f} {y_prime_approx:<20.6f} {error:<15.20f}")
